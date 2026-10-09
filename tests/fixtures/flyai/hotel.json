@@ -1,0 +1,41 @@
+{
+  "data": {
+    "itemList": [
+      {
+        "address": "浙江省杭州市上城区中山中路115号中山大厦608/609",
+        "brandName": null,
+        "commissionMoneyYuan": null,
+        "decorationTime": "2026-01-01",
+        "detailUrl": "https://router.feizhu.com/",
+        "interestsPoi": "近杭州湖滨银泰in77",
+        "latitude": "30.241372",
+        "longitude": "120.170626",
+        "mainPic": "https://img.alicdn.com/",
+        "name": "杭州云集舍青年旅舍（河坊街店）",
+        "price": "¥3x",
+        "rate": null,
+        "shId": "89861004",
+        "star": "经济型"
+      },
+      {
+        "address": "金融大厦8楼（凤起路地铁站C5口步行490米）",
+        "brandName": null,
+        "commissionMoneyYuan": null,
+        "decorationTime": "2024-05-20",
+        "detailUrl": "https://router.feizhu.com/",
+        "interestsPoi": "近杭州西湖风景名胜区",
+        "latitude": "30.258517",
+        "longitude": "120.168188",
+        "mainPic": "https://img.alicdn.com/",
+        "name": "独侠客青年旅舍（杭州西湖店）",
+        "price": "¥6x",
+        "rate": null,
+        "shId": "78644009",
+        "star": "经济型"
+      }
+    ]
+  },
+  "message": "success",
+  "status": 0,
+  "systemMessage": "Experience mode: limited results."
+}

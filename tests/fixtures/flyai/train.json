@@ -1,0 +1,121 @@
+{
+  "data": {
+    "itemList": [
+      {
+        "journeys": [
+          {
+            "journeyType": "直达",
+            "segments": [
+              {
+                "arrCityAbroad": false,
+                "arrCityCode": "330100",
+                "arrCityName": "杭州",
+                "arrDateTime": "2026-10-16 09:34:00",
+                "arrStationCode": "HZH",
+                "arrStationName": "杭州站",
+                "arrStationShortName": "杭州",
+                "arrTerm": null,
+                "arrWeekAbbrName": "周五",
+                "depCityAbroad": null,
+                "depCityCode": "310100",
+                "depCityName": "上海",
+                "depDateTime": "2026-10-16 08:00:00",
+                "depStationCode": "IMH",
+                "depStationName": "上海松江站",
+                "depStationShortName": "上海松江",
+                "depTerm": null,
+                "depWeekAbbrName": "周五",
+                "duration": "94",
+                "marketingTransportName": "动车",
+                "marketingTransportNo": "D181",
+                "miles": null,
+                "quantity": null,
+                "seatClassName": "二等座",
+                "stopInfos": null,
+                "transportType": "火车"
+              }
+            ],
+            "totalDuration": "94",
+            "transferDuration": ""
+          }
+        ],
+        "jumpUrl": "https://router.feizhu.com/",
+        "price": "2x",
+        "totalDuration": "94"
+      },
+      {
+        "journeys": [
+          {
+            "journeyType": "中转",
+            "segments": [
+              {
+                "arrCityAbroad": false,
+                "arrCityCode": "330400",
+                "arrCityName": "嘉兴",
+                "arrDateTime": "2026-10-16 21:19:00",
+                "arrStationCode": "EPH",
+                "arrStationName": "嘉兴南站",
+                "arrStationShortName": "嘉兴南",
+                "arrTerm": null,
+                "arrWeekAbbrName": "周五",
+                "depCityAbroad": null,
+                "depCityCode": "310100",
+                "depCityName": "上海",
+                "depDateTime": "2026-10-16 21:00:00",
+                "depStationCode": "IMH",
+                "depStationName": "上海松江站",
+                "depStationShortName": "上海松江",
+                "depTerm": null,
+                "depWeekAbbrName": "周五",
+                "duration": "19",
+                "marketingTransportName": "高铁",
+                "marketingTransportNo": "G7651",
+                "miles": null,
+                "quantity": null,
+                "seatClassName": "二等座",
+                "stopInfos": null,
+                "transportType": "火车"
+              },
+              {
+                "arrCityAbroad": false,
+                "arrCityCode": "330100",
+                "arrCityName": "杭州",
+                "arrDateTime": "2026-10-16 22:00:00",
+                "arrStationCode": "HGH",
+                "arrStationName": "杭州东站",
+                "arrStationShortName": "杭州东",
+                "arrTerm": null,
+                "arrWeekAbbrName": "周五",
+                "depCityAbroad": null,
+                "depCityCode": "330400",
+                "depCityName": "嘉兴",
+                "depDateTime": "2026-10-16 21:35:00",
+                "depStationCode": "EPH",
+                "depStationName": "嘉兴南站",
+                "depStationShortName": "嘉兴南",
+                "depTerm": null,
+                "depWeekAbbrName": "周五",
+                "duration": "25",
+                "marketingTransportName": "动车",
+                "marketingTransportNo": "D2125",
+                "miles": null,
+                "quantity": null,
+                "seatClassName": "二等座",
+                "stopInfos": null,
+                "transportType": "火车"
+              }
+            ],
+            "totalDuration": "60",
+            "transferDuration": "16"
+          }
+        ],
+        "jumpUrl": "https://router.feizhu.com/",
+        "price": "5x",
+        "totalDuration": "60"
+      }
+    ]
+  },
+  "message": "success",
+  "status": 0,
+  "systemMessage": "Experience mode: limited results."
+}

@@ -7,6 +7,7 @@ from travel_tools.itinerary import validate_itinerary
 from travel_tools.providers.amap import AmapAdapter
 from travel_tools.providers.bocha import BochaAdapter
 from travel_tools.providers.qweather import QWeatherAdapter
+from travel_tools.quote_registry import register_quote_tools
 from travel_tools.registry import ToolRegistry, ToolSpec
 from travel_tools.schemas.itinerary import ValidateItineraryInput, ValidateItineraryOutput
 from travel_tools.schemas.places import (
@@ -16,16 +17,6 @@ from travel_tools.schemas.places import (
     GetRoutesOutput,
     SearchPlacesInput,
     SearchPlacesOutput,
-)
-from travel_tools.schemas.quotes import (
-    SearchCoachesInput,
-    SearchCoachesOutput,
-    SearchFlightsInput,
-    SearchFlightsOutput,
-    SearchHotelsInput,
-    SearchHotelsOutput,
-    SearchTrainsInput,
-    SearchTrainsOutput,
 )
 from travel_tools.schemas.weather import GetWeatherInput, GetWeatherOutput
 from travel_tools.schemas.web_search import SearchWebInput, SearchWebOutput
@@ -136,22 +127,5 @@ def build_registry(settings: Settings, client: httpx.AsyncClient) -> ToolRegistr
             "ready",
         )
     )
-    for name, input_type, output_type in [
-        ("search_flights", SearchFlightsInput, SearchFlightsOutput),
-        ("search_trains", SearchTrainsInput, SearchTrainsOutput),
-        ("search_coaches", SearchCoachesInput, SearchCoachesOutput),
-        ("search_hotels", SearchHotelsInput, SearchHotelsOutput),
-    ]:
-        registry.register(
-            ToolSpec(
-                name,
-                "Read-only date-specific supplier search; supplier integration is not implemented.",
-                input_type,
-                output_type,
-                None,
-                "not_implemented",
-                "No verified customer-query supplier adapter or credentials are available.",
-                True,
-            )
-        )
+    register_quote_tools(registry, settings, client)
     return registry

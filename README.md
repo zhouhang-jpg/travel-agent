@@ -2,7 +2,7 @@
 
 这是 `D:\travel-agent` 的首期工具层：Python / FastAPI / Pydantic，使用 uv、pytest、Ruff。包含 11 个工具的契约、统一调度、按配置导出的模型工具定义，以及独立供应商适配。当前不运行 LLM、聊天前端或完整 ReAct Agent，不保存用户偏好。
 
-**当前基础工具 7 项已可调用。** 2026-10-09 本地配置后，高德地点/详情/路线、和风每日天气、博查网页搜索和公开网页抓取均已取得真实响应；行程校验通过本地正常、冲突和缺证据样例。机票、火车、大巴、酒店 4 项在本轮基础注册表中尚未接入，不导出给模型。同目录中并行补入的票务供应商候选实现需完成独立接入验收，不能仅凭代码存在认定可用。没有凭据的全新环境默认只导出网页抓取和行程校验。
+**基础工具 7 项已通过验证；票务酒店已接入可选适配器，真实报价能力仍受供应商权限和返回字段限制。** 2026-10-09 本地配置后，高德地点/详情/路线、和风每日天气、博查网页搜索和公开网页抓取均已取得真实响应；行程校验通过本地正常、冲突和缺证据样例。机票和酒店可配置飞猪 FlyAI 候选查询；火车优先使用聚合数据，也可显式启用 FlyAI；大巴使用极速数据参考班次及票价。聚合与极速尚无本地凭据，未真实联调。无配置的全新环境只导出网页抓取和行程校验；仅配置高德、和风、博查时导出 7 项。FlyAI 体验模式默认关闭，正式 Key 也不保证完整报价。
 
 ## 本地运行
 
@@ -43,13 +43,26 @@ uv run python scripts/live_probe.py --providers --amap-all-modes
 uv run python scripts/export_schemas.py
 ```
 
-联调脚本输出到被 Git 忽略的 `artifacts/`，仅记录状态、时间和输出字段等摘要。`--providers` 检查地点文本查询、成功结果的详情、步行路线、每日天气、网页搜索；加上 `--amap-all-modes` 扩展到周边与其他路线模式。真实供应商调用失败时以非零状态退出；缺配置以 `tool_unavailable` 记录为未运行，不当作成功。四项未接入查询不发送请求。一次成功是该样例与时间点的证据，不证明所有城市、日期和账号未来额度。
+联调脚本输出到被 Git 忽略的 `artifacts/`，仅记录状态、时间和输出字段等摘要。`--providers` 检查地点文本查询、成功结果的详情、步行路线、每日天气、网页搜索；加上 `--amap-all-modes` 扩展到周边与其他路线模式。真实供应商调用失败时以非零状态退出；缺配置以 `tool_unavailable` 记录为未运行，不当作成功。该脚本不调用票务接口。一次成功是该样例与时间点的证据，不证明所有城市、日期和账号未来额度。
+
+票务/酒店配置见 `.env.example` 和下方供应商文档。保留自己的 `.env`，只补入需要的字段。先准备固定版本 FlyAI CLI，再显式查询一个样例：
+
+```powershell
+powershell -NoProfile -File scripts/setup_flyai.ps1
+# 只对本次进程启用体验模式，不修改 .env，不调用下单接口。
+uv run python scripts/live_probe_quotes.py --tool search_flights --flyai-demo
+# 使用已经配置的正式供应商（可能计费），每次仅查询一项。
+uv run python scripts/live_probe_quotes.py --tool search_trains
+```
+
+`live_probe_quotes.py` 默认查询七天后的单成人样例，支持 `--origin`、`--destination`、`--date`，只输出候选数量及字段完整性统计。它不补全缺失价格、税费或库存。铁路配置优先聚合，不因上游错误自动切换 FlyAI；极速大巴不支持按出行日确认班次与余票。
 
 ## 设计与验证材料
 
 - [工具层设计与共同契约](docs/tool-layer.md)
 - [本次验证与待办状态](docs/verification.md)
 - [高德接口依据](docs/providers/amap.md)、[和风接口依据](docs/providers/qweather.md)、[博查接口依据](docs/providers/bocha.md)
+- [飞猪 FlyAI](docs/providers/flyai.md)、[聚合火车](docs/providers/juhe-train.md)、[极速大巴](docs/providers/jisu-coach.md)、[携程及铁路供应商比较](docs/providers/ticket-suppliers.md)
 - [行程校验规则](docs/itinerary.md)、[票务与酒店契约及供应商准入](docs/quotes.md)
 - [正常样例](examples/itinerary-valid.json)、[冲突样例](examples/itinerary-invalid.json)、[证据不足样例](examples/itinerary-unknown.json)
 

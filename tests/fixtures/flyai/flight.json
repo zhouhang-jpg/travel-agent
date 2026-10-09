@@ -1,0 +1,123 @@
+{
+  "data": {
+    "itemList": [
+      {
+        "journeys": [
+          {
+            "journeyType": "直达",
+            "segments": [
+              {
+                "arrCityAbroad": false,
+                "arrCityCode": "BJS",
+                "arrCityName": "北京",
+                "arrDateTime": "2026-10-16 09:25:00",
+                "arrStationCode": "PKX",
+                "arrStationName": "大兴国际机场",
+                "arrStationShortName": "大兴",
+                "arrTerm": "",
+                "arrWeekAbbrName": "周五",
+                "depCityAbroad": null,
+                "depCityCode": "SHA",
+                "depCityName": "上海",
+                "depDateTime": "2026-10-16 06:55:00",
+                "depStationCode": "PVG",
+                "depStationName": "浦东国际机场",
+                "depStationShortName": "浦东",
+                "depTerm": "T2",
+                "depWeekAbbrName": "周五",
+                "duration": "150",
+                "marketingTransportName": "国航",
+                "marketingTransportNo": "CA8322",
+                "miles": null,
+                "quantity": null,
+                "seatClassName": "经济舱",
+                "stopInfos": null,
+                "transportType": "飞机"
+              }
+            ],
+            "totalDuration": "150",
+            "transferDuration": ""
+          }
+        ],
+        "jumpUrl": "https://router.feizhu.com/",
+        "tags": null,
+        "ticketPrice": "600.00",
+        "totalDuration": "150"
+      },
+      {
+        "journeys": [
+          {
+            "journeyType": "中转",
+            "segments": [
+              {
+                "arrCityAbroad": false,
+                "arrCityCode": "DLC",
+                "arrCityName": "大连",
+                "arrDateTime": "2026-10-16 21:20:00",
+                "arrStationCode": "DLC",
+                "arrStationName": "周水子机场",
+                "arrStationShortName": "周水子",
+                "arrTerm": "",
+                "arrWeekAbbrName": "周五",
+                "depCityAbroad": null,
+                "depCityCode": "SHA",
+                "depCityName": "上海",
+                "depDateTime": "2026-10-16 19:10:00",
+                "depStationCode": "PVG",
+                "depStationName": "浦东国际机场",
+                "depStationShortName": "浦东",
+                "depTerm": "T2",
+                "depWeekAbbrName": "周五",
+                "duration": "130",
+                "marketingTransportName": "国航",
+                "marketingTransportNo": "CA8912",
+                "miles": null,
+                "quantity": null,
+                "seatClassName": "经济舱",
+                "stopInfos": null,
+                "transportType": "飞机"
+              },
+              {
+                "arrCityAbroad": false,
+                "arrCityCode": "BJS",
+                "arrCityName": "北京",
+                "arrDateTime": "2026-10-17 23:40:00",
+                "arrStationCode": "PEK",
+                "arrStationName": "首都国际机场",
+                "arrStationShortName": "首都",
+                "arrTerm": "T3",
+                "arrWeekAbbrName": "周六",
+                "depCityAbroad": null,
+                "depCityCode": "DLC",
+                "depCityName": "大连",
+                "depDateTime": "2026-10-17 22:20:00",
+                "depStationCode": "DLC",
+                "depStationName": "周水子机场",
+                "depStationShortName": "周水子",
+                "depTerm": "",
+                "depWeekAbbrName": "周六",
+                "duration": "80",
+                "marketingTransportName": "国航",
+                "marketingTransportNo": "CA8901",
+                "miles": null,
+                "quantity": null,
+                "seatClassName": "经济舱",
+                "stopInfos": null,
+                "transportType": "飞机"
+              }
+            ],
+            "totalDuration": "1710",
+            "transferDuration": "1500"
+          }
+        ],
+        "jumpUrl": "https://router.feizhu.com/",
+        "tags": null,
+        "ticketPrice": "500.00",
+        "totalDuration": "1710"
+      }
+    ]
+  },
+  "message": "success",
+  "status": 0,
+  "systemMessage": "Experience mode: limited results."
+}

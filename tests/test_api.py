@@ -17,6 +17,10 @@ def empty_settings(**kwargs):
         qweather_api_key=None,
         qweather_api_host=None,
         bocha_api_key=None,
+        juhe_train_api_key=None,
+        jisu_coach_api_key=None,
+        flyai_api_key=None,
+        flyai_enable_demo=False,
         **kwargs,
     )
 
@@ -36,7 +40,7 @@ async def test_unconfigured_catalog_model_export_and_unavailable_call():
         catalog = (await client.get("/tools")).json()
         assert len(catalog) == 11
         statuses = {row["name"]: row["availability"] for row in catalog}
-        assert statuses["search_flights"] == "not_implemented"
+        assert statuses["search_flights"] == "not_configured"
         assert statuses["get_weather"] == "not_configured"
         assert {
             item["function"]["name"]
