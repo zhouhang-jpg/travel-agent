@@ -31,7 +31,6 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = Field(default=120, ge=5, le=180)
     database_url: str = "sqlite+aiosqlite:///private/travel-agent.db"
     agent_max_steps: int = Field(default=12, ge=1, le=40)
-    agent_max_tool_calls: int = Field(default=24, ge=1, le=100)
     agent_max_run_seconds: float = Field(default=300, ge=10, le=600)
     tool_timeout_seconds: float = Field(default=20, ge=1, le=60)
     max_concurrent_calls: int = Field(default=4, ge=1, le=16)

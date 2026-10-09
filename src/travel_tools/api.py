@@ -67,7 +67,6 @@ def create_app(
                 app.state.registry,
                 RunLimits(
                     max_steps=config.agent_max_steps,
-                    max_tool_calls=config.agent_max_tool_calls,
                     max_run_seconds=config.agent_max_run_seconds,
                 ),
             )

@@ -239,17 +239,17 @@ async def test_step_limit_stops_loop_preserving_results():
     assert len(tool_payloads(result.history)) == 2
 
 
-async def test_tool_budget_closes_entire_unexecuted_batch():
-    async def forbidden(arguments):
-        pytest.fail("Over-budget batch executed")
-
-    model = FakeModel(action(call(call_id="a"), call(call_id="b")))
+async def test_tool_calls_above_previous_limits_all_execute_and_history_is_complete():
+    # Exceed both the former default (24) and former configurable maximum (100).
+    first = [call(call_id=f"first-{i}") for i in range(60)]
+    second = [call(call_id=f"second-{i}") for i in range(60)]
+    model = FakeModel(action(*first), action(*second), answer())
     _, emit = emitter()
-    result = await AgentRunner(model, make_registry(forbidden), RunLimits(max_tool_calls=1)).run(
-        [], emit
-    )
-    assert result.error["code"] == "tool_limit"
-    assert [item["error"]["code"] for item in tool_payloads(result.history)] == ["tool_limit"] * 2
+    result = await AgentRunner(model, make_registry()).run([], emit)
+    assert result.status == "completed" and result.error is None
+    assert len(tool_payloads(result.history)) == 120
+    assert all(item["status"] == "ok" for item in tool_payloads(result.history))
+    assert model.requests[-1][0][1:] == result.history[:-1]
 
 
 async def test_large_history_and_answer_are_passed_through_without_length_limits():

@@ -36,7 +36,6 @@ MODEL_FAILURE_MESSAGES = {
 @dataclass
 class RunLimits:
     max_steps: int = 12
-    max_tool_calls: int = 24
     max_run_seconds: float = 300
 
 
@@ -100,7 +99,6 @@ class AgentRunner:
             value <= 0
             for value in (
                 self.limits.max_steps,
-                self.limits.max_tool_calls,
                 self.limits.max_run_seconds,
             )
         ):
@@ -147,7 +145,6 @@ class AgentRunner:
             for definition in self.registry.model_definitions()
             if definition.get("function", {}).get("name") not in {"search_coaches", "ask_user"}
         ]
-        tool_count = 0
         try:
             async with asyncio.timeout(self.limits.max_run_seconds):
                 await persist()
@@ -190,11 +187,6 @@ class AgentRunner:
                         return await fail(
                             "invalid_tool_call", "模型返回的工具调用格式无效，本次执行已停止。"
                         )
-                    if tool_count + len(calls) > self.limits.max_tool_calls:
-                        return await fail(
-                            "tool_limit", "已达到本次工具调用上限；执行记录已完整保留。"
-                        )
-                    tool_count += len(calls)
                     mixed_question = len(calls) != 1 and any(
                         call["function"]["name"] == "ask_user" for call in calls
                     )

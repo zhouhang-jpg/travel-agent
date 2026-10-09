@@ -29,7 +29,6 @@ async def main():
         update={
             "database_url": "sqlite+aiosqlite:///artifacts/agent-live-probe.db",
             "agent_max_steps": 6,
-            "agent_max_tool_calls": 6,
         }
     )
     app = create_app(settings)
