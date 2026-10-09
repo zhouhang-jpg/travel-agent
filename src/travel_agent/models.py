@@ -155,8 +155,8 @@ class OpenAICompatibleModel:
         provider: str = "deepseek",
         thinking: bool = True,
         reasoning_effort: str = "high",
-        max_tokens: int = 4096,
-        timeout_seconds: float = 60,
+        max_tokens: int = 16384,
+        timeout_seconds: float = 120,
     ) -> None:
         self._endpoint = _endpoint(base_url)
         if (

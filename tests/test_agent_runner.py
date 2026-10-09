@@ -247,6 +247,30 @@ async def test_model_failure_is_not_retried_or_leaked(error):
     assert not events
 
 
+@pytest.mark.parametrize(
+    ("code", "explanation"),
+    [
+        ("output_truncated", "长度上限"),
+        ("timeout", "请求超时"),
+        ("rate_limited", "过于频繁"),
+        ("authentication_error", "鉴权"),
+    ],
+)
+async def test_model_failure_explains_cause_and_preserves_completed_queries(code, explanation):
+    model = FakeModel(action(call()), ModelError(code, "provider secret"))
+    events, emit = emitter()
+    result = await AgentRunner(model, make_registry()).run(
+        [{"role": "user", "content": "安排四天出行"}], emit
+    )
+    assert result.status == "error" and result.error["code"] == code
+    assert explanation in result.content
+    assert "provider secret" not in result.content
+    assert len(model.requests) == 2
+    assert len(tool_payloads(result.history)) == 1
+    assert tool_payloads(result.history)[0]["status"] == "ok"
+    assert not any(event["type"] == "message" for event in events)
+
+
 async def test_tool_exception_is_safe_and_model_can_continue():
     registry = make_registry()
 

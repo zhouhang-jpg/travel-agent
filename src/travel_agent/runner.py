@@ -17,13 +17,31 @@ from travel_tools.registry import ErrorInfo, ToolRegistry, ToolResult
 EventEmitter = Callable[[dict[str, Any]], Awaitable[None]]
 HistoryCheckpoint = Callable[[list[dict]], Awaitable[None]]
 
+# Only locally authored explanations may cross the public API boundary.
+MODEL_FAILURE_MESSAGES = {
+    "output_truncated": (
+        "模型输出达到单次长度上限，未能完成方案。查询记录已保留，可发送“继续”重试；"
+        "若反复出现，需要提高服务的输出额度。"
+    ),
+    "timeout": "模型请求超时，查询记录已保留，可以稍后发送“继续”重试。",
+    "connection_error": "暂时无法连接模型服务，查询记录已保留，请稍后继续。",
+    "rate_limited": "模型服务请求过于频繁，查询记录已保留，请稍后继续。",
+    "service_unavailable": "模型服务暂时不可用，查询记录已保留，请稍后继续。",
+    "authentication_error": (
+        "模型服务鉴权或访问被拒绝，请检查 API Key 和模型访问权限。查询记录已保留。"
+    ),
+    "configuration_error": "模型配置无效，请检查模型名称、服务地址和运行参数。查询记录已保留。",
+    "invalid_response": "模型返回了无法使用的响应，执行记录已保留，请稍后继续。",
+    "response_too_large": "模型响应超过大小上限，本次执行已停止，查询记录已保留。",
+}
+
 
 @dataclass
 class RunLimits:
     max_steps: int = 12
     max_tool_calls: int = 24
-    max_context_chars: int = 200000
-    max_run_seconds: float = 180
+    max_context_chars: int = 500000
+    max_run_seconds: float = 300
 
 
 @dataclass
@@ -231,7 +249,9 @@ class AgentRunner:
         except ModelError as exc:
             return await fail(
                 exc.code,
-                "模型服务未能完成本次请求，执行记录已保留，请检查模型配置或稍后重试。",
+                MODEL_FAILURE_MESSAGES.get(
+                    exc.code, "模型服务未能完成本次请求，执行记录已保留，请稍后继续。"
+                ),
                 retryable=exc.retryable,
             )
         except asyncio.CancelledError:

@@ -19,7 +19,7 @@
 非 HTTPS 地址；本地开发允许 `localhost`、`127.0.0.1` 和 `::1` 上的 HTTP。
 
 `provider="deepseek"` 时发送 `thinking.type`（`enabled` 或 `disabled`）以及
-`reasoning_effort`。默认启用思考、effort 为 `high`、`max_tokens=4096`、超时 60 秒。
+`reasoning_effort`。默认启用思考、effort 为 `high`、`max_tokens=16384`、超时 120 秒。
 这些默认值是初始实现参数，后续应根据真实评估调整。
 `provider="openai_compatible"` 不发送 DeepSeek 专有的上述两个参数。
 其他厂商如果使用不同协议，应实现另一个 `ChatModel`，不能假设修改 URL 就完全兼容。

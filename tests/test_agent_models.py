@@ -108,7 +108,7 @@ async def test_deepseek_parameters_and_numeric_usage(thinking):
     body = json.loads(captured[0].content)
     assert body["thinking"] == {"type": "enabled" if thinking else "disabled"}
     assert body["reasoning_effort"] == "high"
-    assert body["max_tokens"] == 4096
+    assert body["max_tokens"] == 16384
     assert str(captured[0].url) == "https://api.deepseek.com/chat/completions"
     assert captured[0].headers["authorization"] == "Bearer test-secret-not-a-real-key"
     assert reply.usage == {"prompt_tokens": 100, "completion_tokens": 20, "cost": 0.25}
