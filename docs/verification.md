@@ -16,9 +16,9 @@
 | fetch_webpage | 已实现、真实网页验证通过 | https://example.com/，HTML 577 字节，标题 Example Domain，正文匹配，无截断 |
 | validate_itinerary | 已实现、本地验证通过 | 3 个可执行样例分别为 valid / invalid / unknown |
 | search_flights | FlyAI 适配与注册完成，显式体验样例通过 | 完整 Python 注册调度返回 3 条真实候选；金额、完整报价与库存仍未知；当前 .env 未启用 |
-| search_trains | 聚合/FlyAI 适配与注册完成 | 聚合缺 key，未真实联调；FlyAI 原始 CLI 曾返回候选，未验证完整工具实调及准确票价/余票；默认未启用 |
+| search_trains | 聚合/FlyAI 适配与注册完成 | FlyAI 完整工具实调已返回 3 条车次候选；金额/余票未知，正式 Key 待配置。聚合为备选，缺 key 未实调 |
 | search_coaches | 极速适配与注册完成，缺 key | 离线契约测试通过；未真实联调。仅参考班次/票价，无按日查询或库存 |
-| search_hotels | FlyAI 适配与注册完成 | 原始 CLI 曾返回候选，未验证完整工具实调及准确房价/库存；默认未启用 |
+| search_hotels | FlyAI 适配与注册完成 | FlyAI 完整工具实调已返回 3 条酒店候选；金额/库存未知，正式 Key 待配置 |
 
 真实接口摘要位于被 Git 忽略的 `artifacts/live-probe-all-modes.json`，该轮时间为 **2026-10-09 10:59:40–10:59:46 UTC**。摘要仅记录状态、时间、返回数量和字段名，不记录认证信息或完整原始供应商结果。较早的 `live-probe-providers.json` 在和风 Host 尚未完成配置时记录了不可用；不能用它代替最新结果。
 
@@ -27,6 +27,10 @@
 一次成功仅说明当时账号、查询和响应能通过工具处理，不证明所有地点、日期、参数组合、未来余额或生产可靠性。错误、缺失值与不支持的能力仍会明确返回。
 
 票务接线后于 **11:08:12–11:08:13 UTC** 执行 `scripts/live_probe_quotes.py --tool search_flights --flyai-demo`，通过完整 Settings → registry → Python adapter → 固定 FlyAI CLI 链路查询上海到北京的 2026-10-16 航班。状态 `ok`，按请求限制保留 3 条候选，`complete=false`；可用金额、查询时报价和已知库存均为 **0** 条。不能把这些候选称为准确机票报价。脱敏摘要位于 `artifacts/live-probe-quotes.json`。体验开关只对这次进程生效，未修改用户 `.env`，当前持久配置仍导出 7 个工具。
+
+用户随后确认机票、火车票和酒店先使用飞猪。铁路默认改为显式配置 `TRAIN_SEARCH_PROVIDER=flyai`，不再根据另一家供应商是否有 Key 自动选择聚合；聚合仅在设为 `juhe` 时使用。缺配置或调用失败均不静默回退。用户现有 `.env` 已补入飞猪运行路径、空 Key 字段及铁路选型；保留原有密钥，体验开关仍为 false。正式 Key 尚待用户配置。
+
+于 **11:15:32–11:15:34 UTC** 各执行一次完整工具链体验查询：上海→杭州火车（2026-10-16）、杭州酒店（2026-10-16 至 18）。两项均 `ok`，各保留 3 条候选、`complete=false`，金额/查询时报价/已知库存统计均为 0。铁路与酒店分别返回 4、6 条能力提示。报告为 `artifacts/live-probe-flyai-trains.json` 与 `artifacts/live-probe-flyai-hotels.json`，仅记录脱敏统计。由此验证车次与酒店候选可查询，尚不能确认准确票价、房价及库存。
 
 ## 本地测试与样例
 
@@ -50,6 +54,8 @@
 票务集成后完整运行 `python -m pytest -q`：**396 passed**，包括上述 270 项基础测试、39 项 FlyAI 测试、72 项聚合/极速测试、15 项供应商选择与注册调度测试。FlyAI 测试包含真实本地 Node 子进程退出/异常隔离测试，其余供应商协议测试使用脱敏或合成夹具。测试通过不等于有正式报价权限。全项目 Ruff 检查与格式检查也通过。
 
 FlyAI 固定包为 `@fly-ai/flyai-cli@1.0.16`，安装脚本检查归档及 bundle SHA256，不执行 npm 生命周期脚本或自动查询。包保存在忽略目录 `.tools/flyai-cli`；配置、设备状态保存在项目私有目录，密钥只通过子进程环境传递。正式 key 尚未验证。
+
+飞猪选型变更后，针对供应商选择及 HTTP 注册集成运行 `pytest tests/test_quote_registry.py tests/test_api.py -q`：**27 passed**。新增回归确保选定飞猪时不会因聚合 Key 存在而切换，且选定但缺配置的供应商不会被另一家替代；Ruff 检查与格式检查通过。本次没有重复运行其他未修改模块的完整测试。
 
 ## 复核中发现并处理的问题
 

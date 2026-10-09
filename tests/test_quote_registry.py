@@ -39,6 +39,7 @@ def settings(**overrides):
                 "flyai_cli_path": None,
                 "flyai_state_directory": "private/flyai",
                 "juhe_train_api_key": None,
+                "train_search_provider": "flyai",
                 "jisu_coach_api_key": None,
             }
             | overrides
@@ -176,7 +177,7 @@ async def test_flyai_is_not_ready_without_explicit_mode_and_all_local_files(
 
 
 @pytest.mark.parametrize("error_code", [0, 10001])
-async def test_juhe_takes_precedence_and_failure_does_not_fall_back(
+async def test_explicit_juhe_selection_and_failure_does_not_fall_back(
     local_paths,
     monkeypatch,
     error_code,
@@ -209,6 +210,7 @@ async def test_juhe_takes_precedence_and_failure_does_not_fall_back(
                 **local_paths,
                 flyai_enable_demo=True,
                 juhe_train_api_key=SecretStr("offline-juhe-secret"),
+                train_search_provider="juhe",
             ),
             client,
         )
@@ -221,6 +223,46 @@ async def test_juhe_takes_precedence_and_failure_does_not_fall_back(
     else:
         assert result.status == "ok" and result.data["offers"] == []
     assert "offline-juhe-secret" not in result.model_dump_json() + json.dumps(registry.catalog())
+
+
+@pytest.mark.parametrize("flyai_enabled", [False, True])
+async def test_default_flyai_selection_never_calls_juhe(local_paths, monkeypatch, flyai_enabled):
+    calls = []
+
+    async def execute(argv, env, duration):
+        calls.append(argv)
+        return flyai.CLIResult(0, '{"status":0,"data":{"itemList":[]}}')
+
+    monkeypatch.setattr(flyai, "_execute_cli", execute)
+    registry = ToolRegistry()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(no_http)) as client:
+        register_quote_tools(
+            registry,
+            settings(
+                **local_paths,
+                flyai_enable_demo=flyai_enabled,
+                juhe_train_api_key=SecretStr("configured-but-unselected"),
+            ),
+            client,
+        )
+        result = await registry.dispatch("search_trains", TRANSPORT)
+    if flyai_enabled:
+        assert result.status == "ok" and calls[0][4] == "search-train"
+    else:
+        assert result.error.code == "tool_unavailable" and calls == []
+
+
+async def test_selected_juhe_without_key_does_not_use_available_flyai(local_paths):
+    registry = ToolRegistry()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(no_http)) as client:
+        register_quote_tools(
+            registry,
+            settings(**local_paths, flyai_enable_demo=True, train_search_provider="juhe"),
+            client,
+        )
+        result = await registry.dispatch("search_trains", TRANSPORT)
+    assert result.error.code == "tool_unavailable"
+    assert "JUHE_TRAIN_API_KEY" in catalog(registry)["search_trains"]["reason"]
 
 
 async def test_jisu_dispatch_keeps_coaches_reference_only():

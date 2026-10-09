@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -10,6 +12,7 @@ class Settings(BaseSettings):
     qweather_api_host: str | None = None
     bocha_api_key: SecretStr | None = None
     juhe_train_api_key: SecretStr | None = None
+    train_search_provider: Literal["flyai", "juhe"] = "flyai"
     jisu_coach_api_key: SecretStr | None = None
     flyai_api_key: SecretStr | None = None
     flyai_enable_demo: bool = False

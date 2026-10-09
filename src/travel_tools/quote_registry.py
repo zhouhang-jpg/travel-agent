@@ -65,11 +65,12 @@ def register_quote_tools(
     flights = flyai.FlyAIFlightAdapter(flyai_client) if flyai_client else None
     hotels = flyai.FlyAIHotelAdapter(flyai_client) if flyai_client else None
     trains = None
-    train_reason = "Set JUHE_TRAIN_API_KEY, or configure FlyAI: " + flyai_reason
-    if has_secret(settings.juhe_train_api_key):
-        # A configured provider's failures stay visible; there is no silent fallback.
-        trains = JuheTrainAdapter(settings.juhe_train_api_key.get_secret_value(), client)
-    elif flyai_client:
+    train_reason = "Configure the selected FlyAI railway provider: " + flyai_reason
+    if settings.train_search_provider == "juhe":
+        train_reason = "Set JUHE_TRAIN_API_KEY for the selected Juhe railway provider."
+        if has_secret(settings.juhe_train_api_key):
+            trains = JuheTrainAdapter(settings.juhe_train_api_key.get_secret_value(), client)
+    elif settings.train_search_provider == "flyai" and flyai_client:
         trains = flyai.FlyAITrainAdapter(flyai_client)
     coaches = (
         JisuCoachAdapter(settings.jisu_coach_api_key.get_secret_value(), client)

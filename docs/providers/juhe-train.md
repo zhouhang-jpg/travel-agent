@@ -9,7 +9,7 @@
 - 产品页说明可以在购买前测试，但当前未核实个人账号的最终审批条件、免费测试额度、付费价格及限流额度。以账号控制台及供应商确认结果为准；无需先假设必须购买套餐。
 - 不使用[旧产品 ID22](https://www.juhe.cn/docs/api/id/22)：本次核查其页面标记为“已停用”。不要依据仍可搜索到的旧版 PDF 配置端点。
 
-本项目的凭据配置名为 `JUHE_TRAIN_API_KEY`。只在本地环境或部署密钥配置中填写，不能提交到 Git。适配器通过构造器接收凭据，不自行读取环境变量：
+本项目当前铁路默认使用飞猪；只有显式设置 `TRAIN_SEARCH_PROVIDER=juhe` 才启用本适配器，凭据配置名为 `JUHE_TRAIN_API_KEY`。只在本地环境或部署密钥配置中填写，不能提交到 Git。适配器通过构造器接收凭据，不自行读取环境变量：
 
 ```python
 JuheTrainAdapter(api_key: str, client: httpx.AsyncClient)

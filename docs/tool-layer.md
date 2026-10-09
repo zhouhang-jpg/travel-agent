@@ -24,7 +24,7 @@
 
 `ready` **不是**真实鉴权、服务权限、额度或数据正确性的证明。配置密钥后仍可能得到鉴权/限流/响应错误。目录的 `live_verification=not_recorded` 表示进程没有载入验证记录；真实联调证据单独保存在脚本报告和验证文档中，不能随配置自动改为 passed。
 
-无配置时只导出网页抓取、行程校验。本次用户完成高德、和风、博查配置后导出 7 项工具；所有 11 项的输入输出 Schema 可通过目录查阅及导出。`quote_registry.py` 按配置接入 FlyAI、聚合火车、极速大巴；缺配置为 `not_configured`，调用返回 `tool_unavailable` 和 null data，不返回成功空 offers。FlyAI 需要已有 Node/CLI 文件和正式 Key 或明确的体验开关；火车优先聚合，不在供应商错误后隐式切换。模型工具描述随实际供应商说明查询限制。
+无配置时只导出网页抓取、行程校验。本次用户完成高德、和风、博查配置后导出 7 项工具；所有 11 项的输入输出 Schema 可通过目录查阅及导出。`quote_registry.py` 按配置接入 FlyAI、聚合火车、极速大巴；缺配置为 `not_configured`，调用返回 `tool_unavailable` 和 null data，不返回成功空 offers。FlyAI 需要已有 Node/CLI 文件和正式 Key 或明确的体验开关；铁路默认 `TRAIN_SEARCH_PROVIDER=flyai`，聚合需显式选择 `juhe`；缺配置或上游错误都不隐式切换供应商。模型工具描述随实际供应商说明查询限制。
 
 调度默认最多 4 个并发，总执行时限 20 秒（包括排队），输入最多 256 KiB，序列化结果最多 2 MiB。供应商单请求另有 15 秒和 2 MiB 响应限制。这些是可调整的工具资源默认值，不是已定的 ReAct 总轮数/成本/上下文阈值。超限返回明确错误，不静默裁剪历史。网页正文有独立显式 `truncated` 字段。
 

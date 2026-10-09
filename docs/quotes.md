@@ -2,7 +2,7 @@
 
 以下四个工具已实现严格契约、独立适配接口与按配置注册。**缺少对应配置时不向模型导出**；不可用调用返回明确错误，不能返回伪造的空成功结果。注册只确认实现及本地配置，真实服务权限与字段质量由独立联调证明。
 
-机票和酒店使用可选 [FlyAI](providers/flyai.md) 候选查询；火车优先 [聚合数据](providers/juhe-train.md)，未配置聚合时才允许使用显式启用的 FlyAI；大巴使用 [极速数据](providers/jisu-coach.md) 参考班次与票价，不能确认指定日期的可售库存。FlyAI 正式 Key 或体验开关之外，还必须配置已有 Node/CLI 文件；不会在查询时自动下载程序。聚合、极速的真实调用仍待账号凭据。
+用户已选择机票、火车票和酒店先使用 [FlyAI](providers/flyai.md) 候选查询。铁路默认 `TRAIN_SEARCH_PROVIDER=flyai`；[聚合数据](providers/juhe-train.md) 保留为显式选择 `juhe` 的备选，不自动回退；大巴使用 [极速数据](providers/jisu-coach.md) 参考班次与票价，不能确认指定日期的可售库存。FlyAI 正式 Key 或体验开关之外，还必须配置已有 Node/CLI 文件；不会在查询时自动下载程序。聚合、极速的真实调用仍待账号凭据。
 
 | 工具 | 输入/输出 Pydantic 类型 | 供应商接口 |
 | --- | --- | --- |
