@@ -4,7 +4,7 @@ import json
 import httpx
 import pytest
 
-from travel_agent.models import MAX_RESPONSE_BYTES, ModelError, OpenAICompatibleModel
+from travel_agent.models import ModelError, OpenAICompatibleModel
 
 
 def response_payload(message=None, finish_reason="stop", usage=None):
@@ -108,7 +108,8 @@ async def test_deepseek_parameters_and_numeric_usage(thinking):
     body = json.loads(captured[0].content)
     assert body["thinking"] == {"type": "enabled" if thinking else "disabled"}
     assert body["reasoning_effort"] == "high"
-    assert body["max_tokens"] == 16384
+    assert "max_tokens" not in body
+    assert "max_completion_tokens" not in body
     assert str(captured[0].url) == "https://api.deepseek.com/chat/completions"
     assert captured[0].headers["authorization"] == "Bearer test-secret-not-a-real-key"
     assert reply.usage == {"prompt_tokens": 100, "completion_tokens": 20, "cost": 0.25}
@@ -128,6 +129,8 @@ async def test_generic_provider_does_not_receive_deepseek_parameters():
     body = json.loads(captured[0].content)
     assert "thinking" not in body
     assert "reasoning_effort" not in body
+    assert "max_tokens" not in body
+    assert "max_completion_tokens" not in body
     assert str(captured[0].url) == "https://example.com/v1/chat/completions"
 
 
@@ -270,18 +273,30 @@ class CountingStream(httpx.AsyncByteStream):
 
 
 @pytest.mark.parametrize("advertise_length", [True, False])
-async def test_oversized_response_stops_reading_and_closes_stream(advertise_length):
-    stream = CountingStream()
-    headers = {"content-length": str(MAX_RESPONSE_BYTES + 1)} if advertise_length else {}
+async def test_response_above_previous_size_limit_is_returned_in_full(advertise_length):
+    content = "行程" * (1024 * 1024)
+    payload = response_payload({"role": "assistant", "content": content})
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    headers = {"content-length": str(len(body))} if advertise_length else {}
+
+    class ReplyStream(httpx.AsyncByteStream):
+        closed = False
+
+        async def __aiter__(self):
+            for offset in range(0, len(body), 64 * 1024):
+                yield body[offset : offset + 64 * 1024]
+
+        async def aclose(self):
+            self.closed = True
+
+    stream = ReplyStream()
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(
             lambda request: httpx.Response(200, stream=stream, headers=headers)
         )
     ) as client:
-        with pytest.raises(ModelError) as error:
-            await make_model(client).complete([], [])
-    assert error.value.code == "response_too_large"
-    assert stream.chunks_read == (0 if advertise_length else MAX_RESPONSE_BYTES // (64 * 1024) + 1)
+        reply = await make_model(client).complete([], [])
+    assert reply.message["content"] == content
     assert stream.closed
 
 

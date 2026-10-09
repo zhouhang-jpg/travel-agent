@@ -54,7 +54,6 @@ def create_app(
                         provider=config.llm_provider,
                         thinking=config.llm_thinking,
                         reasoning_effort=config.llm_reasoning_effort,
-                        max_tokens=config.llm_max_tokens,
                         timeout_seconds=config.llm_timeout_seconds,
                     )
                 except ModelError:
@@ -69,7 +68,6 @@ def create_app(
                 RunLimits(
                     max_steps=config.agent_max_steps,
                     max_tool_calls=config.agent_max_tool_calls,
-                    max_context_chars=config.agent_max_context_chars,
                     max_run_seconds=config.agent_max_run_seconds,
                 ),
             )

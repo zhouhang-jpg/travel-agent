@@ -1,4 +1,4 @@
-"""A bounded, non-streaming model protocol and OpenAI-compatible HTTP adapter.
+"""A non-streaming model protocol and OpenAI-compatible HTTP adapter.
 
 Assistant messages are opaque history records after basic structural validation.
 In particular, DeepSeek reasoning_content must survive subsequent tool turns.
@@ -15,8 +15,6 @@ from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 import httpx
-
-MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 
 class ModelError(Exception):
@@ -155,7 +153,6 @@ class OpenAICompatibleModel:
         provider: str = "deepseek",
         thinking: bool = True,
         reasoning_effort: str = "high",
-        max_tokens: int = 16384,
         timeout_seconds: float = 120,
     ) -> None:
         self._endpoint = _endpoint(base_url)
@@ -169,8 +166,6 @@ class OpenAICompatibleModel:
             or not isinstance(thinking, bool)
             or not isinstance(reasoning_effort, str)
             or not reasoning_effort.strip()
-            or type(max_tokens) is not int
-            or max_tokens <= 0
             or type(timeout_seconds) not in {int, float}
             or not math.isfinite(timeout_seconds)
             or timeout_seconds <= 0
@@ -182,7 +177,6 @@ class OpenAICompatibleModel:
         self.provider = provider
         self.thinking = thinking
         self.reasoning_effort = reasoning_effort
-        self.max_tokens = max_tokens
         self.timeout_seconds = timeout_seconds
 
     async def complete(self, messages: list[dict], tools: list[dict]) -> ModelReply:
@@ -191,7 +185,6 @@ class OpenAICompatibleModel:
             "messages": messages,
             "tools": tools,
             "stream": False,
-            "max_tokens": self.max_tokens,
         }
         if self.provider == "deepseek":
             payload["thinking"] = {"type": "enabled" if self.thinking else "disabled"}
@@ -209,14 +202,8 @@ class OpenAICompatibleModel:
                     follow_redirects=False,
                 ) as response:
                     self._check_status(response.status_code)
-                    content_length = response.headers.get("content-length")
-                    if content_length and content_length.isdigit():
-                        if int(content_length) > MAX_RESPONSE_BYTES:
-                            raise self._too_large()
                     body = bytearray()
                     async for chunk in response.aiter_bytes(chunk_size=64 * 1024):
-                        if len(body) + len(chunk) > MAX_RESPONSE_BYTES:
-                            raise self._too_large()
                         body.extend(chunk)
             return _parse_reply(bytes(body))
         except ModelError:
@@ -231,10 +218,6 @@ class OpenAICompatibleModel:
             raise ModelError(
                 "request_failed", "The model request could not be processed."
             ) from None
-
-    @staticmethod
-    def _too_large() -> ModelError:
-        return ModelError("response_too_large", "The model response exceeded the size limit.")
 
     @staticmethod
     def _check_status(status: int) -> None:

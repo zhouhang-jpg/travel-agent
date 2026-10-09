@@ -19,10 +19,7 @@ HistoryCheckpoint = Callable[[list[dict]], Awaitable[None]]
 
 # Only locally authored explanations may cross the public API boundary.
 MODEL_FAILURE_MESSAGES = {
-    "output_truncated": (
-        "模型输出达到单次长度上限，未能完成方案。查询记录已保留，可发送“继续”重试；"
-        "若反复出现，需要提高服务的输出额度。"
-    ),
+    "output_truncated": "模型服务达到自身输出长度上限，回答被截断。记录已保留，可发送“继续”重试。",
     "timeout": "模型请求超时，查询记录已保留，可以稍后发送“继续”重试。",
     "connection_error": "暂时无法连接模型服务，查询记录已保留，请稍后继续。",
     "rate_limited": "模型服务请求过于频繁，查询记录已保留，请稍后继续。",
@@ -32,7 +29,6 @@ MODEL_FAILURE_MESSAGES = {
     ),
     "configuration_error": "模型配置无效，请检查模型名称、服务地址和运行参数。查询记录已保留。",
     "invalid_response": "模型返回了无法使用的响应，执行记录已保留，请稍后继续。",
-    "response_too_large": "模型响应超过大小上限，本次执行已停止，查询记录已保留。",
 }
 
 
@@ -40,7 +36,6 @@ MODEL_FAILURE_MESSAGES = {
 class RunLimits:
     max_steps: int = 12
     max_tool_calls: int = 24
-    max_context_chars: int = 500000
     max_run_seconds: float = 300
 
 
@@ -105,7 +100,6 @@ class AgentRunner:
             for value in (
                 self.limits.max_steps,
                 self.limits.max_tool_calls,
-                self.limits.max_context_chars,
                 self.limits.max_run_seconds,
             )
         ):
@@ -161,12 +155,6 @@ class AgentRunner:
                         datetime.now(timezone), timezone_name, self.registry.catalog()
                     )
                     messages = [system, *deepcopy(conversation)]
-                    size = len(json.dumps([messages, definitions], ensure_ascii=False))
-                    if size > self.limits.max_context_chars:
-                        return await fail(
-                            "context_limit",
-                            "完整对话已达到本次上下文上限；历史已保留，未进行裁剪。",
-                        )
                     reply = await self.model.complete(
                         messages=messages, tools=deepcopy(definitions)
                     )
@@ -300,10 +288,9 @@ class AgentRunner:
                 set(arguments) != {"message"}
                 or not isinstance(question, str)
                 or not question.strip()
-                or len(question) > 4000
             ):
                 return _tool_result(
-                    call, code="invalid_arguments", message="ask_user 需要1到4000字的非空 message。"
+                    call, code="invalid_arguments", message="ask_user 需要非空 message。"
                 )
             return _tool_result(call, data={"message": question, "state": "waiting_user"})
         try:

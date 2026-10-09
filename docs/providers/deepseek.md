@@ -19,8 +19,9 @@
 非 HTTPS 地址；本地开发允许 `localhost`、`127.0.0.1` 和 `::1` 上的 HTTP。
 
 `provider="deepseek"` 时发送 `thinking.type`（`enabled` 或 `disabled`）以及
-`reasoning_effort`。默认启用思考、effort 为 `high`、`max_tokens=16384`、超时 120 秒。
-这些默认值是初始实现参数，后续应根据真实评估调整。
+`reasoning_effort`。默认启用思考、effort 为 `high`、超时 120 秒。
+按用户要求不传 `max_tokens` 或 `max_completion_tokens`，也不检查上下文字符数或模型响应字节数。
+输出由服务默认策略及模型自身容量决定，省略参数不代表供应商提供无限输出。
 `provider="openai_compatible"` 不发送 DeepSeek 专有的上述两个参数。
 其他厂商如果使用不同协议，应实现另一个 `ChatModel`，不能假设修改 URL 就完全兼容。
 
@@ -53,9 +54,8 @@ API 层应白名单选择公开字段，而不能直接序列化 `ModelReply.mes
 | `service_unavailable` | 上游返回 5xx | true |
 | `request_failed` | 其他 HTTP 拒绝或请求编码错误 | false |
 | `invalid_response` | JSON、消息结构或结束原因不合法，或无工具且正文为空 | false |
-| `response_too_large` | 响应超出 2 MiB | false |
 | `output_truncated` | `finish_reason=length`，答案或工具参数尚未完成 | false |
 
-适配器禁止跟随 HTTP 重定向；先检查响应状态，再限量读取解码后的响应体。
+适配器禁止跟随 HTTP 重定向；先检查响应状态，再完整读取解码后的响应体。
 除单次 HTTP 操作超时外，还限制完整请求的总耗时，防止缓慢持续返回的响应无限占用运行。
-长度截断不会当成成功答案交付；是否调整参数再次请求由运行器明确决定。
+供应商长度截断不会当成成功答案交付；执行历史保留，用户可继续，应用不会自动重试。

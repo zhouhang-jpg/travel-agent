@@ -39,7 +39,7 @@ ASK_USER_TOOL: dict[str, Any] = {
         ),
         "parameters": {
             "type": "object",
-            "properties": {"message": {"type": "string", "minLength": 1, "maxLength": 4000}},
+            "properties": {"message": {"type": "string", "minLength": 1}},
             "required": ["message"],
             "additionalProperties": False,
         },

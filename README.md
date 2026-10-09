@@ -36,7 +36,7 @@ Vite 将 `/api` 代理至后端。当前要求 **单 worker、单应用进程**�
 
 `POST /conversations` 创建会话；`GET /conversations` 及 `GET /conversations/{id}` 恢复公开对话；`POST /conversations/{id}/messages` 接收消息并返回 SSE。执行中同会话的新输入返回 409，关闭 SSE 不取消后台任务。`GET /agent/health` 返回模型配置状态。Agent 在可用工具上添加 `ask_user` 并排除 `search_coaches`；底层工具目录仍保留全部契约。
 
-默认每次运行最多 12 次模型决策、24 次工具调用、500000 个上下文字符、300 秒，均可配置。完整历史不摘要或裁剪；超限明确报告并保留历史，用户可继续。模型默认启用思考、`reasoning_effort=high`、16384 个输出 Token、单次 120 秒超时；这些是运行参数，不是业务步骤。失败不自动更换模型或供应商。
+应用层不限制完整上下文字符数、模型输出 token 数、模型响应字节数或追问消息长度；完整历史不摘要或裁剪，请求不传 `max_tokens` 或 `max_completion_tokens`，输出由供应商默认策略及其自身容量决定。供应商截断或拒绝仍明确报告并保留执行记录。默认每次运行最多 12 次模型决策、24 次工具调用、300 秒，均可配置；单次模型请求 120 秒。模型默认启用思考、`reasoning_effort=high`。这些运行预算不是业务步骤，失败不自动更换模型或供应商。
 
 HTTP 服务用于本地开发，尚无生产身份认证和租户隔离。默认命令绑定 `127.0.0.1`。`GET /health` 是进程健康检查，不代表外部供应商可用；`GET /tools` 返回全部契约及状态；`GET /tools/model-definitions` 仅返回可调度工具；`POST /tools/{name}/call` 接收 `{"arguments": {...}, "call_id": "可选模型工具调用ID"}`。接口文档见本地 `http://127.0.0.1:8000/docs`。
 

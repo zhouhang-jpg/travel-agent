@@ -177,7 +177,7 @@ async def test_mixed_question_rejected_without_executing_any_tool():
 
 
 @pytest.mark.parametrize(
-    "arguments", [{}, {"message": " "}, {"message": "x" * 4001}, {"message": "日期？", "extra": 1}]
+    "arguments", [{}, {"message": " "}, {"message": 123}, {"message": "日期？", "extra": 1}]
 )
 async def test_invalid_question_can_be_corrected(arguments):
     invalid = call("ask_user")
@@ -224,15 +224,27 @@ async def test_tool_budget_closes_entire_unexecuted_batch():
     assert [item["error"]["code"] for item in tool_payloads(result.history)] == ["tool_limit"] * 2
 
 
-async def test_context_limit_keeps_entire_history_and_skips_model():
-    history = [{"role": "user", "content": "行程" * 5000}]
-    model = FakeModel()
+async def test_large_history_and_answer_are_passed_through_without_length_limits():
+    history = [{"role": "user", "content": "行程" * 300000}]
+    content = "完整方案" * 100000
+    model = FakeModel(answer(content))
     _, emit = emitter()
-    result = await AgentRunner(model, make_registry(), RunLimits(max_context_chars=20)).run(
-        history, emit
-    )
-    assert result.error["code"] == "context_limit"
-    assert result.history == history and not model.requests
+    result = await AgentRunner(model, make_registry()).run(history, emit)
+    assert result.status == "completed"
+    assert model.requests[0][0][1:] == history
+    assert result.history[:1] == history
+    assert result.content == content
+
+
+async def test_question_above_previous_length_limit_is_returned_in_full():
+    question = "请确认出行安排。" * 1000
+    model = FakeModel(action(call("ask_user", {"message": question})))
+    events, emit = emitter()
+    result = await AgentRunner(model, make_registry()).run([], emit)
+    assert result.status == "waiting_user" and result.content == question
+    assert events[-1]["content"] == question
+    definition = model.requests[0][1][0]
+    assert "maxLength" not in definition["function"]["parameters"]["properties"]["message"]
 
 
 @pytest.mark.parametrize(
