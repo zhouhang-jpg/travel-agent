@@ -5,25 +5,96 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import ValidationError
+from sqlalchemy.exc import SQLAlchemyError
 
+from travel_agent.api import router as conversation_router
+from travel_agent.models import ModelError, OpenAICompatibleModel
+from travel_agent.runner import RunLimits, repair_history
+from travel_agent.service import AgentService
+from travel_agent.storage import ConversationStore
 from travel_tools.bootstrap import build_registry
-from travel_tools.config import Settings
+from travel_tools.config import Settings, has_secret
 from travel_tools.registry import DispatchRequest, ToolRegistry, ToolResult
 
 
-def create_app(settings: Settings | None = None, registry: ToolRegistry | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    registry: ToolRegistry | None = None,
+    *,
+    model=None,
+    store: ConversationStore | None = None,
+) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         async with httpx.AsyncClient(trust_env=False, follow_redirects=False) as client:
-            app.state.registry = registry or build_registry(settings or Settings(), client)
-            yield
+            config = settings or Settings()
+            app.state.registry = registry or build_registry(config, client)
+            if config.llm_provider == "deepseek":
+                key, base_url, model_name = (
+                    config.deepseek_api_key,
+                    config.deepseek_base_url,
+                    config.deepseek_model,
+                )
+            else:
+                key, base_url, model_name = (
+                    config.llm_api_key,
+                    config.llm_base_url,
+                    config.llm_model,
+                )
+            selected_model = model
+            if selected_model is None and has_secret(key) and base_url and model_name:
+                try:
+                    selected_model = OpenAICompatibleModel(
+                        api_key=key.get_secret_value(),
+                        base_url=base_url,
+                        model=model_name,
+                        client=client,
+                        provider=config.llm_provider,
+                        thinking=config.llm_thinking,
+                        reasoning_effort=config.llm_reasoning_effort,
+                        max_tokens=config.llm_max_tokens,
+                        timeout_seconds=config.llm_timeout_seconds,
+                    )
+                except ModelError:
+                    selected_model = None
+            database = store or ConversationStore(config.database_url)
+            await database.initialize()
+            await database.recover_runs(repair_history)
+            app.state.agent = AgentService(
+                database,
+                selected_model,
+                app.state.registry,
+                RunLimits(
+                    max_steps=config.agent_max_steps,
+                    max_tool_calls=config.agent_max_tool_calls,
+                    max_context_chars=config.agent_max_context_chars,
+                    max_run_seconds=config.agent_max_run_seconds,
+                ),
+            )
+            app.state.agent_health = {
+                "model_configured": selected_model is not None,
+                "model": model_name or "",
+                "provider": config.llm_provider,
+            }
+            try:
+                yield
+            finally:
+                await app.state.agent.close()
+                if store is None:
+                    await database.close()
 
-    app = FastAPI(title="Travel Agent Tools", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Travel Assistant", version="0.2.0", lifespan=lifespan)
+    app.include_router(conversation_router)
+
+    @app.exception_handler(SQLAlchemyError)
+    async def storage_error(request: Request, exc: SQLAlchemyError):
+        return JSONResponse(status_code=503, content={"detail": "会话存储暂时不可用，请稍后重试。"})
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "scope": "tool_layer"}
+        return {"status": "ok", "scope": "agent_and_tools"}
 
     @app.get("/tools")
     async def catalog(request: Request):

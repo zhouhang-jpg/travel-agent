@@ -21,6 +21,7 @@ def empty_settings(**kwargs):
         jisu_coach_api_key=None,
         flyai_api_key=None,
         flyai_enable_demo=False,
+        database_url="sqlite+aiosqlite:///:memory:",
         **kwargs,
     )
 

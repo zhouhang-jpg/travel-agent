@@ -147,4 +147,4 @@ guard 用专用 sentinel 在相同位置结束成功分支，让 Node 自然收�
 .\.venv\Scripts\ruff.exe check src/travel_tools/providers/flyai.py tests/test_flyai.py
 ```
 
-正式上线前仍需验证：正式 key 的权限与配额、准确价格和币种、税费口径、缓存/实时语义、库存、人数与房型支持、时区/坐标元数据，以及相应服务条款。当前适配器不会因配置 key 自动提高这些能力声明。
+2026-10-09 用户配置正式 Key 后，火车、酒店完整工具查询各返回 3 条候选，`complete=false`；脱敏报告为 `artifacts/live-probe-formal-trains.json`、`artifacts/live-probe-formal-hotels.json`。正式上线前仍需核实所需权限与配额、准确价格和币种、税费、缓存/实时语义、库存、人数与房型支持、时区/坐标元数据，以及相应服务条款。当前适配器不会因配置 Key 自动提高这些能力声明。

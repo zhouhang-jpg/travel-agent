@@ -19,6 +19,22 @@ class Settings(BaseSettings):
     flyai_node_path: str | None = None
     flyai_cli_path: str | None = None
     flyai_state_directory: str = "private/flyai"
+    llm_provider: Literal["deepseek", "openai_compatible"] = "deepseek"
+    deepseek_api_key: SecretStr | None = None
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_model: str = "deepseek-flash"
+    llm_api_key: SecretStr | None = None
+    llm_base_url: str | None = None
+    llm_model: str | None = None
+    llm_thinking: bool = True
+    llm_reasoning_effort: Literal["low", "high", "max"] = "high"
+    llm_max_tokens: int = Field(default=4096, ge=256, le=16384)
+    llm_timeout_seconds: float = Field(default=60, ge=5, le=180)
+    database_url: str = "sqlite+aiosqlite:///private/travel-agent.db"
+    agent_max_steps: int = Field(default=12, ge=1, le=40)
+    agent_max_tool_calls: int = Field(default=24, ge=1, le=100)
+    agent_max_context_chars: int = Field(default=200000, ge=8000, le=2000000)
+    agent_max_run_seconds: float = Field(default=180, ge=10, le=600)
     tool_timeout_seconds: float = Field(default=20, ge=1, le=60)
     max_concurrent_calls: int = Field(default=4, ge=1, le=16)
 

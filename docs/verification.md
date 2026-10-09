@@ -1,10 +1,27 @@
-# 工具层验证记录
+# Agent 与工具验证记录
 
-验证日期：2026-10-09。工作目录：`D:\travel-agent`。本记录覆盖基础工具与可选票务供应商接入，使用 Python 3.13.9、uv 0.12.24 和 `uv.lock`。本轮未调用任何大模型。
+验证日期：2026-10-09。工作目录：`D:\travel-agent`。本记录覆盖多轮 Agent、前端、持久化与工具层，使用 Python 3.13.9、uv 0.12.24 和锁定依赖。当前已完成 `deepseek-flash` 真实模型调用；单元测试仍使用注入式模型和供应商响应。
+
+## 最新多轮 Agent 验收
+
+用户要求给予 LLM 更大自主度，提示词已简化为目标、自主决策说明、运行协议和事实边界，移除固定问题数量、必须先追问/先查工具及答案模板。仅保留 `ask_user` 表示等待用户的接口约定、工具契约、准确性和资源限制。新版系统正文为 771 字符，已重启本地单 worker 后端生效。
+
+- 全量 Python 测试：**496 passed in 17.09s**；Ruff 检查与格式检查通过。
+- 前端 SSE 解析测试：**3 passed**；TypeScript 与 Vite 生产构建通过。
+- 新增迁移测试：独立临时 SQLite 库完成 upgrade、重复 upgrade、保存及重开恢复、downgrade 和再次 upgrade。默认会话库未参与测试；PostgreSQL 尚未真实联调。
+- `tests/test_api.py` 改用内存数据库，避免默认会话库被工具 API 测试初始化或恢复运行租约。
+
+真实模型探针 `artifacts/agent-autonomy-probe.json`：模糊出行需求由模型自主调用 ask_user，提出 5 项补充信息并进入 waiting_user；用户给出上海单人一天需求后调用 get_weather 并 completed；预算修改后复用历史，无新工具调用，completed。三轮均未公开 reasoning_content。这是一个验收样例，不规定所有需求都按该顺序执行。
+
+实际浏览器在 `http://127.0.0.1:5173/` 新建独立“开发验收”会话，完成追问→补充→真实天气/地点/路线查询→预算修改；执行中输入禁用，刷新后恢复 running 并由后台继续，结束后恢复 completed。公开记录 6 条、内部完整历史 15 条，5 条模型消息保留 reasoning_content，所有工具调用 ID 均有匹配结果；预算修改轮没有新查询，`last_error=null`。脱敏摘要为 `artifacts/agent-browser-verification.json`，截图为 `artifacts/agent-browser-verified.jpg`。
+
+正式 FlyAI Key 的火车/酒店验证时间分别为 11:40:26–11:40:28 UTC，各成功返回 3 条候选、complete=false；价格和库存仍不完整。报告为 `artifacts/live-probe-formal-trains.json` 与 `artifacts/live-probe-formal-hotels.json`。当前 Agent 使用 10 项已配置基础工具及 ask_user，排除大巴。
+
+以下保留早期工具层记录以便追溯；其中“正式 Key 待配置”等描述是当时状态，以本节和当前表格为准。
 
 ## 当前工具状态
 
-用户已在本地 `.env` 配置高德、和风和博查。基础目录包含 11 个输入输出契约，当前向模型导出 7 项工具。
+用户已配置高德、和风、博查、FlyAI 与 DeepSeek。工具目录保留 11 项契约，当前 Agent 使用已配置的 10 项工具加 ask_user；大巴排除。
 
 | 工具 | 当前状态 | 本轮证据与限制 |
 | --- | --- | --- |
@@ -15,10 +32,10 @@
 | search_web | 已实现、已配置、真实调用通过 | “故宫博物院 官方 开放时间”返回 1 项；确认官网 api.bochaai.com 在本账号样例中可用 |
 | fetch_webpage | 已实现、真实网页验证通过 | https://example.com/，HTML 577 字节，标题 Example Domain，正文匹配，无截断 |
 | validate_itinerary | 已实现、本地验证通过 | 3 个可执行样例分别为 valid / invalid / unknown |
-| search_flights | FlyAI 适配与注册完成，显式体验样例通过 | 完整 Python 注册调度返回 3 条真实候选；金额、完整报价与库存仍未知；当前 .env 未启用 |
-| search_trains | 聚合/FlyAI 适配与注册完成 | FlyAI 完整工具实调已返回 3 条车次候选；金额/余票未知，正式 Key 待配置。聚合为备选，缺 key 未实调 |
-| search_coaches | 极速适配与注册完成，缺 key | 离线契约测试通过；未真实联调。仅参考班次/票价，无按日查询或库存 |
-| search_hotels | FlyAI 适配与注册完成 | FlyAI 完整工具实调已返回 3 条酒店候选；金额/库存未知，正式 Key 待配置 |
+| search_flights | FlyAI 已配置，体验候选曾通过 | 完整工具链返回过 3 条候选；正式 Key 航班未另做本轮实调，完整价格/库存仍不保证 |
+| search_trains | 默认 FlyAI 已配置，正式 Key 调用通过 | 3 条车次候选；报价/余票仍不完整。聚合为显式备选，未实调 |
+| search_coaches | 当前 Agent 排除 | 保留极速参考适配，未真实联调；不做大巴爬虫 |
+| search_hotels | FlyAI 已配置，正式 Key 调用通过 | 3 条酒店候选；房型/完整费用/库存仍未完全核实 |
 
 真实接口摘要位于被 Git 忽略的 `artifacts/live-probe-all-modes.json`，该轮时间为 **2026-10-09 10:59:40–10:59:46 UTC**。摘要仅记录状态、时间、返回数量和字段名，不记录认证信息或完整原始供应商结果。较早的 `live-probe-providers.json` 在和风 Host 尚未完成配置时记录了不可用；不能用它代替最新结果。
 
@@ -72,4 +89,4 @@ FlyAI 固定包为 `@fly-ai/flyai-cli@1.0.16`，安装脚本检查归档及 bund
 
 GitHub 仓库尚未创建或关联：当前 GitHub 工具没有创建仓库能力，本机未提供 `gh`，本任务没有借用其他项目或私有应用配置。已添加 CI 文件，但未在 GitHub 实际运行。
 
-后续需要申请并验证正式票务酒店账号，重点是准确价格、库存、计价人数或房间数与税费。聚合和极速尚缺 key；FlyAI 正式 key 和实际报价完整性仍需联调。携程官方 MCP 可作为企业合作候选，12306 暂未查到普通开发者自助公开 API 的官方接入证据，详见供应商比较。公开部署还需要身份认证与运行环境方案；本轮 FastAPI 服务按 README 绑定本机地址使用。
+后续重点是 FlyAI 所需服务权限、准确价格、库存、计价人数/房间数及税费的完整性；正式 Key 已通过火车/酒店候选查询，不能据此确认完整报价。大巴本期跳过；PostgreSQL、生产认证、多进程租约和 GitHub 创建/推送尚未完成。当前 FastAPI 按 README 使用本地单 worker。

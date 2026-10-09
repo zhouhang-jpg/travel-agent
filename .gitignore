@@ -20,3 +20,4 @@ private/
 *.pem
 *.key
 node_modules/
+*.tsbuildinfo
