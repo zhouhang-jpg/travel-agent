@@ -6,6 +6,10 @@
 
 用户可以回答助手追问，或在本轮完成后继续修改需求。提示词不限定提问数量、查询顺序或答案模板；模型选择等待回复时单独调用 `ask_user`，普通正文表示本轮交付完成。执行中输入禁用，不支持插话或取消；刷新或关闭页面后后台继续，重新打开可恢复公开对话。
 
+助手倾向尽早集中澄清可能导致方案返工的缺失条件，复用已知信息；信息充分时直接查询或规划，
+不知道去哪时可以先探索。新增 `get_attraction_opening_hours` 查询常规营业描述和计划日期公告
+证据，保留分馆、来源、时间、失败和未知，模型核对官方身份及适用日期；不把缺公告当成开放。
+
 完整用户、模型、工具历史及供应商要求的 `reasoning_content` 在后端持久化。UI 只显示公开答复、问题和工具状态，不展示隐藏推理、原始参数或完整工具结果。操作范围为只读查询与规划。
 
 ## 本地运行
@@ -61,6 +65,8 @@ uv run python scripts/live_probe.py --providers --amap-all-modes
 uv run python scripts/export_schemas.py
 # 开发样例：真实多轮模型和工具联调，会消耗已配置服务额度。
 uv run python scripts/live_probe_agent.py --live
+uv run python scripts/live_probe_clarification.py --live
+uv run python scripts/live_probe_opening_hours.py --live
 pnpm --dir frontend test
 pnpm --dir frontend build
 ```
@@ -82,6 +88,7 @@ uv run python scripts/live_probe_quotes.py --tool search_trains
 ## 设计与验证材料
 
 - [工具层设计与共同契约](docs/tool-layer.md)
+- [景点开放时间证据与日期边界](docs/opening-hours.md)
 - [Agent 行为与完整上下文](docs/agent-behavior.md)、[模型接口与私有字段](docs/providers/deepseek.md)、[前端说明](frontend/README.md)
 - [本次验证与待办状态](docs/verification.md)
 - [高德接口依据](docs/providers/amap.md)、[和风接口依据](docs/providers/qweather.md)、[博查接口依据](docs/providers/bocha.md)

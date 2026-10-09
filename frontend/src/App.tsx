@@ -9,6 +9,7 @@ const STATUS: Record<ConversationStatus, string> = {
 };
 const TOOL_LABELS: Record<string, string> = {
   search_places: '查找地点', search_pois: '查找地点', get_place_details: '核实地点信息',
+  get_attraction_opening_hours: '查询景点开放时间',
   geocode: '定位出行地点', get_routes: '查询路线', plan_route: '查询路线',
   get_weather: '查询天气', search_web: '查找出行资料', web_search: '查找出行资料',
   fetch_webpage: '阅读来源资料', search_flights: '查询航班', search_trains: '查询火车',

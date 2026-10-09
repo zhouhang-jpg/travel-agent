@@ -4,12 +4,17 @@ import httpx
 
 from travel_tools.config import Settings, has_secret
 from travel_tools.itinerary import validate_itinerary
+from travel_tools.opening_hours import OpeningHoursLookup
 from travel_tools.providers.amap import AmapAdapter
 from travel_tools.providers.bocha import BochaAdapter
 from travel_tools.providers.qweather import QWeatherAdapter
 from travel_tools.quote_registry import register_quote_tools
 from travel_tools.registry import ToolRegistry, ToolSpec
 from travel_tools.schemas.itinerary import ValidateItineraryInput, ValidateItineraryOutput
+from travel_tools.schemas.opening_hours import (
+    GetAttractionOpeningHoursInput,
+    GetAttractionOpeningHoursOutput,
+)
 from travel_tools.schemas.places import (
     GetPlaceDetailsInput,
     GetPlaceDetailsOutput,
@@ -105,6 +110,21 @@ def build_registry(settings: Settings, client: httpx.AsyncClient) -> ToolRegistr
                 requires_external_service=True,
             )
         )
+    registry.register(
+        ToolSpec(
+            "get_attraction_opening_hours",
+            "查询景点或场馆常规营业描述和计划日期相关公告证据；"
+            "优先核实官方来源，区分闭馆日、停止售票/入园及临时调整。"
+            "返回候选、原文、来源和缺失/失败状态；必须核对场馆身份、日期及来源冲突。"
+            "地图描述、日期搜索命中或没找到闭馆公告都不证明当天开放。"
+            "已知官方页面可传 official_urls；无搜索/地图配置时仍可读取这些页面。",
+            GetAttractionOpeningHoursInput,
+            GetAttractionOpeningHoursOutput,
+            OpeningHoursLookup(amap, bocha).get_attraction_opening_hours,
+            "ready",
+            requires_external_service=True,
+        )
+    )
     registry.register(
         ToolSpec(
             "fetch_webpage",
