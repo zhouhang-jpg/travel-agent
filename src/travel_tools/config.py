@@ -12,7 +12,12 @@ class Settings(BaseSettings):
     qweather_api_host: str | None = None
     bocha_api_key: SecretStr | None = None
     juhe_train_api_key: SecretStr | None = None
-    train_search_provider: Literal["flyai", "juhe"] = "flyai"
+    train_search_provider: Literal["12306", "flyai", "juhe"] = "12306"
+    train_fallback_provider: Literal["flyai", "none"] = "flyai"
+    coach_search_provider: Literal["bus365", "jisu"] = "bus365"
+    browser_queries_enabled: bool = False
+    browser_query_timeout_seconds: float = Field(default=18, ge=3, le=55)
+    browser_query_cache_seconds: float = Field(default=0, ge=0, le=300)
     jisu_coach_api_key: SecretStr | None = None
     flyai_api_key: SecretStr | None = None
     flyai_enable_demo: bool = False

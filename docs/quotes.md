@@ -2,7 +2,7 @@
 
 以下四个工具已实现严格契约、独立适配接口与按配置注册。**缺少对应配置时不向模型导出**；不可用调用返回明确错误，不能返回伪造的空成功结果。注册只确认实现及本地配置，真实服务权限与字段质量由独立联调证明。
 
-用户已选择机票、火车票和酒店先使用 [FlyAI](providers/flyai.md) 候选查询。铁路默认 `TRAIN_SEARCH_PROVIDER=flyai`；[聚合数据](providers/juhe-train.md) 保留为显式选择 `juhe` 的备选，不自动回退。当前 Agent 跳过大巴，保留 [极速数据](providers/jisu-coach.md) 参考适配，不能确认指定日期的可售库存。FlyAI 正式 Key 或体验开关之外，还必须配置已有 Node/CLI 文件；不会在查询时自动下载程序。正式 Key 火车、酒店候选已真实返回；价格和库存仍不完整，聚合、极速尚未真实联调。
+铁路默认`TRAIN_SEARCH_PROVIDER=12306`，优先官方公开页面；[FlyAI](providers/flyai.md)保留显式选择或配置且披露的降级，[聚合](providers/juhe-train.md)保留显式来源。普通大巴已恢复，默认出行365，旧[极速](providers/jisu-coach.md)只在显式配置时使用。机票默认FlyAI，可用`provider=ceair`按需核实东航官网。独立浏览器的安装、关闭、缓存、来源选择和真实边界见[浏览器票务](providers/browser-tickets.md)。酒店继续FlyAI，候选价格、房型及库存仍可能不完整。此轮只验证有限样本，未承诺全国或全市场覆盖。
 
 | 工具 | 输入/输出 Pydantic 类型 | 供应商接口 |
 | --- | --- | --- |
@@ -48,9 +48,14 @@ request = SearchHotelsInput.model_validate(
 
 已知金额必须有大写三字母币种和非负十进制数；合法零金额保留。金额口径 `unit` 区分整组、每人、整个住宿、每房、每间夜或未知。`priced_persons`、`priced_rooms`、`priced_nights` 记录供应商明确返回或已验证的计价数量，缺失保持空值，不从查询条件推断成供应商已确认的口径。`tax_basis` 和 `fee_basis` 各自区分包含、不含、部分、未知；已知税/附加费金额单列，币种须与主报价一致。可选有效期和条件原样保留。
 
-`inventory.status` 分为 `available`、`unavailable`、`request_only`、`unknown`。报价不能推导出可售库存；询价或需人工确认的结果也不是确定有库存。剩余数量可为空，未知或询价状态不得声称确切余量。结果的车次/航班号、时间、运营商、席别、酒店房型、取消条款、餐食等没有返回就保持空值。
+`price.display`单独保存原展示文字、精确数字/遮罩状态和币种符号，`currency_basis`说明规范化币种依据。数字已知但ISO币种未核实时，`money=null`并不代表没有展示价格；不能填零或猜币种。原始时间保存在`departure_text/arrival_text`，无偏移不强加时区；网页明确当地时刻且国内机场/车站可核实时才转为带偏移时间。`segments`保留每段机场/站点、航站楼、营销与实际承运、共享及原时刻，营销名称不填成实际运营商。
+
+`inventory.status`另区分`waitlist`（候补）、`not_offered`、`not_on_sale`和`sales_suspended`。报价不能推导可售库存；“有”只确认列表状态，不造数字，“候补”不是有票。剩余数量只有实际数字证据时填写；未知或询价状态无确切余量。`raw_status`保留原文。车次、时间、实际承运人、席别、酒店房型、取消条款等未核实就保持空值。
 
 各输出要求查询时间、类型化 `offers` 以及供应商响应完整性 `complete`。只有实际成功执行查询、供应商确实没有返回匹配结果时才可以返回空列表；认证失败、权限缺失、配额超限、无供应商、接口未实现及上游故障必须显式失败。`complete` 指查询响应是否完整，不能冒充整个市场已搜索完，也不能代替未知字段。
+`coverage`记录来源、扫描/匹配/返回数量、页码/后续页、原数据时间、缓存命中、测得耗时和降级原因。
+`train_numbers/flight_numbers`可核实特定候选，`direct_only/nonstop_only`按实际段数和路由证据筛选；
+候选条数限制和分页范围均明确披露，不能把当前页或最多10项CLI结果说成全市场最低价。
 
 ## 供应商接入前置核验
 

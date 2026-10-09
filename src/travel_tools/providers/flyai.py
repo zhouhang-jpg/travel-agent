@@ -12,6 +12,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -23,12 +24,14 @@ from urllib.parse import urlsplit
 from pydantic import ValidationError
 
 from travel_tools.common import Source, ToolFailure, utc_now
+from travel_tools.providers.ticket_data import numeric_display, place_key
 from travel_tools.schemas.quotes import (
     FlightOffer,
     HotelOffer,
     InventoryEvidence,
     Money,
     PriceEvidence,
+    QueryCoverage,
     SearchFlightsInput,
     SearchFlightsOutput,
     SearchHotelsInput,
@@ -37,6 +40,7 @@ from travel_tools.schemas.quotes import (
     SearchTrainsInput,
     SearchTrainsOutput,
     TrainOffer,
+    TransportSegment,
 )
 
 _PROVIDER = "fliggy_flyai"
@@ -240,6 +244,8 @@ def _price(item: dict[str, Any], context: dict[str, Any]) -> PriceEvidence:
         kind="reference" if money else "unknown",
         money=money,
         conditions=json.dumps(evidence, ensure_ascii=False, separators=(",", ":")),
+        display=numeric_display(text, currency if valid else None),
+        currency_basis="Supplier explicit ISO currency" if valid else None,
     )
 
 
@@ -292,6 +298,9 @@ def _transport_fields(
         "duration",
         "quantity",
         "stopInfos",
+        "depTerm",
+        "arrTerm",
+        "marketingTransportName",
     )
     context = {
         "segments": [{key: segment.get(key) for key in evidence_fields} for segment in segments]
@@ -302,19 +311,49 @@ def _transport_fields(
         "sources": [_source(item, queried_at)],
         "price": _price(item, context),
         "inventory": InventoryEvidence(),
-        "origin": SearchLocation(query=first["depStationName"]),
-        "destination": SearchLocation(query=last["arrStationName"]),
+        "origin": SearchLocation(
+            query=first["depStationName"], provider_location_id=first.get("depStationCode") or None
+        ),
+        "destination": SearchLocation(
+            query=last["arrStationName"], provider_location_id=last.get("arrStationCode") or None
+        ),
         "departure_at": _aware_time(first.get("depDateTime")),
         "arrival_at": _aware_time(last.get("arrDateTime")),
-        "service_number": "/".join(segment["marketingTransportNo"] for segment in segments),
-        "operator": "/".join(
-            dict.fromkeys(
-                str(segment["marketingTransportName"])
-                for segment in segments
-                if segment.get("marketingTransportName")
+        "departure_text": first.get("depDateTime"),
+        "arrival_text": last.get("arrDateTime"),
+        "time_basis": "explicit_offset" if _aware_time(first.get("depDateTime")) else "unspecified",
+        "duration_text": str(item.get("totalDuration"))
+        if item.get("totalDuration") is not None
+        else None,
+        "direct": _direct_trip(
+            item, segments, ignore_stops=all(s.get("transportType") == "火车" for s in segments)
+        ),
+        "segments": [
+            TransportSegment(
+                origin=segment["depStationName"],
+                destination=segment["arrStationName"],
+                origin_code=segment.get("depStationCode") or None,
+                destination_code=segment.get("arrStationCode") or None,
+                departure_text=segment.get("depDateTime"),
+                arrival_text=segment.get("arrDateTime"),
+                departure_terminal=segment.get("depTerm") or None,
+                arrival_terminal=segment.get("arrTerm") or None,
+                service_number=segment["marketingTransportNo"],
+                marketing_carrier=(
+                    None
+                    if segment.get("transportType") == "火车"
+                    else segment.get("marketingTransportName") or None
+                ),
+                seat_or_cabin=segment.get("seatClassName") or None,
+                stop_evidence=json.dumps(segment["stopInfos"], ensure_ascii=False)
+                if segment.get("stopInfos")
+                else None,
             )
-        )
-        or None,
+            for segment in segments
+        ],
+        "service_number": "/".join(segment["marketingTransportNo"] for segment in segments),
+        # A marketing name/type does not identify an actual operating carrier.
+        "operator": None,
         "seat_or_cabin": "/".join(
             dict.fromkeys(
                 str(segment["seatClassName"])
@@ -324,6 +363,15 @@ def _transport_fields(
         )
         or None,
     }
+
+
+def _direct_trip(item: dict, segments: list[dict], *, ignore_stops: bool = False) -> bool | None:
+    journey_type = item["journeys"][0].get("journeyType")
+    if len(segments) > 1 or journey_type == "中转":
+        return False
+    if journey_type == "直达":
+        return ignore_stops or not bool(segments[0].get("stopInfos"))
+    return None
 
 
 def _transport_arguments(request: Any) -> list[str]:
@@ -362,6 +410,7 @@ class FlyAIFlightAdapter:
         self.client = client
 
     async def search(self, request: SearchFlightsInput) -> SearchFlightsOutput:
+        started = time.monotonic()
         _validate_supported(request)
         arguments = _transport_arguments(request)
         cabin = {
@@ -381,13 +430,19 @@ class FlyAIFlightAdapter:
         for item in items:
             try:
                 segments = _segments(item)
+                if request.flight_numbers and not any(
+                    segment["marketingTransportNo"] in request.flight_numbers
+                    for segment in segments
+                ):
+                    filtered += 1
+                    continue
                 if not str(segments[0].get("depDateTime", "")).startswith(
                     request.departure_date.isoformat() + " "
                 ) and not str(segments[0].get("depDateTime", "")).startswith(
                     request.departure_date.isoformat() + "T"
                 ):
                     raise ValueError("departure date does not match")
-                if request.nonstop_only and (len(segments) != 1 or segments[0].get("stopInfos")):
+                if request.nonstop_only and _direct_trip(item, segments) is not True:
                     filtered += 1
                     continue
                 if cabin and any(segment.get("seatClassName") != cabin for segment in segments):
@@ -396,6 +451,7 @@ class FlyAIFlightAdapter:
                 offers.append(
                     FlightOffer(
                         **_transport_fields(item, segments, queried_at),
+                        marketing_carrier=segments[0].get("marketingTransportName") or None,
                         stops=None
                         if any(segment.get("stopInfos") for segment in segments)
                         else len(segments) - 1,
@@ -414,6 +470,19 @@ class FlyAIFlightAdapter:
             complete=False,
             sources=[_source({}, queried_at)],
             warnings=warnings,
+            coverage=QueryCoverage(
+                provider=_PROVIDER,
+                query_status="results" if offers else "filtered_empty" if items else "no_results",
+                scanned_count=len(items),
+                matched_count=len(offers),
+                returned_count=min(len(offers), request.max_results),
+                data_time=queried_at,
+                elapsed_seconds=round(time.monotonic() - started, 3),
+                scope=(
+                    "Official CLI limited candidates (at most 10), no pagination; "
+                    "timing includes CLI and mapping."
+                ),
+            ),
         )
 
 
@@ -437,6 +506,7 @@ class FlyAITrainAdapter:
         self.client = client
 
     async def search(self, request: SearchTrainsInput) -> SearchTrainsOutput:
+        started = time.monotonic()
         _validate_supported(request)
         arguments = _transport_arguments(request)
         if request.seat_class:
@@ -448,6 +518,35 @@ class FlyAITrainAdapter:
         for item in items:
             try:
                 segments = _segments(item)
+                if (
+                    request.direct_only
+                    and _direct_trip(item, segments, ignore_stops=True) is not True
+                ):
+                    continue
+                if request.train_numbers and not all(
+                    segment["marketingTransportNo"] in request.train_numbers for segment in segments
+                ):
+                    continue
+                if request.station_scope == "exact" and (
+                    segments[0]["depStationName"].removesuffix("站")
+                    != request.origin.query.removesuffix("站")
+                    or segments[-1]["arrStationName"].removesuffix("站")
+                    != request.destination.query.removesuffix("站")
+                ):
+                    continue
+                if request.station_scope == "city" and (
+                    place_key(segments[0].get("depCityName") or "")
+                    != place_key(request.origin.query)
+                    or place_key(segments[-1].get("arrCityName") or "")
+                    != place_key(request.destination.query)
+                ):
+                    # A supplied station name can still match exactly in city mode.
+                    if segments[0]["depStationName"].removesuffix(
+                        "站"
+                    ) != request.origin.query.removesuffix("站") or segments[-1][
+                        "arrStationName"
+                    ].removesuffix("站") != request.destination.query.removesuffix("站"):
+                        continue
                 if (
                     str(segments[0].get("depDateTime", ""))[:10]
                     != request.departure_date.isoformat()
@@ -479,6 +578,19 @@ class FlyAITrainAdapter:
             complete=False,
             sources=[_source({}, queried_at)],
             warnings=warnings,
+            coverage=QueryCoverage(
+                provider=_PROVIDER,
+                query_status="results" if offers else "filtered_empty" if items else "no_results",
+                scanned_count=len(items),
+                matched_count=len(offers),
+                returned_count=min(len(offers), request.max_results),
+                data_time=queried_at,
+                elapsed_seconds=round(time.monotonic() - started, 3),
+                scope=(
+                    "Official CLI limited candidates (at most 10), no pagination; "
+                    "timing includes CLI and mapping."
+                ),
+            ),
         )
 
 

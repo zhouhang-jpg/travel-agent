@@ -10,6 +10,7 @@ from travel_agent.runner import AgentRunner, RunLimits, repair_history
 from travel_agent.tool_encoding import decode_tool_result
 from travel_tools.common import StrictModel, ToolPayload
 from travel_tools.registry import ToolRegistry, ToolSpec
+from travel_tools.schemas.quotes import SearchTrainsInput, SearchTrainsOutput
 
 
 class Input(StrictModel):
@@ -159,6 +160,28 @@ async def test_question_protocol_does_not_limit_business_question_count():
     assert tool_payloads(outcome.history)[0]["data"]["message"] == question
 
 
+async def test_later_tool_evidence_can_trigger_another_question_in_same_conversation():
+    _, emit = emitter()
+    first = await AgentRunner(
+        FakeModel(action(call("ask_user", {"message": "哪天出行？"}, "q1"))), make_registry()
+    ).run([{"role": "user", "content": "帮我安排出游"}], emit)
+    resumed = first.history + [{"role": "user", "content": "周一，一个人，必须去该场馆。"}]
+    second_model = FakeModel(
+        action(call(call_id="evidence")),
+        action(call("ask_user", {"message": "查询发现周一闭馆，要改日期还是换场馆？"}, "q2")),
+    )
+    second = await AgentRunner(second_model, make_registry()).run(resumed, emit)
+    assert second.status == "waiting_user"
+    assert second.history[: len(resumed)] == resumed
+    assert len([r for r in tool_payloads(second.history) if r["tool_name"] == "ask_user"]) == 2
+    third_model = FakeModel(answer("按你选择更换场馆，继续安排。"))
+    third = await AgentRunner(third_model, make_registry()).run(
+        second.history + [{"role": "user", "content": "日期不变，换场馆。"}], emit
+    )
+    assert third.status == "completed"
+    assert third_model.requests[0][0][1:-1] == second.history
+
+
 async def test_multiple_tools_then_autonomous_answer_and_environment():
     model = FakeModel(action(call(call_id="a"), call(call_id="b")), answer())
     events, emit = emitter()
@@ -171,21 +194,50 @@ async def test_multiple_tools_then_autonomous_answer_and_environment():
     assert model.requests[1][0][1:] == result.history[:-1]
     system = model.requests[0][0][0]["content"]
     assert "Asia/Shanghai" in system and "current_time" in system
-    assert "search_coaches" not in system
+    assert "search_coaches" in system
     assert [event["status"] for event in events if event["type"] == "tool_finished"] == ["ok", "ok"]
     assert all("arguments" not in event and "data" not in event for event in events)
 
 
-async def test_coaches_never_exported_or_dispatched():
-    async def forbidden(arguments):
-        pytest.fail("Disabled tool executed")
-
-    model = FakeModel(action(call("search_coaches")), answer("目前不支持大巴票查询。"))
+async def test_ready_ordinary_coach_tool_is_exported_and_dispatched():
+    model = FakeModel(action(call("search_coaches")), answer("这是普通大巴候选。"))
     _, emit = emitter()
-    result = await AgentRunner(model, make_registry(forbidden)).run([], emit)
+    result = await AgentRunner(model, make_registry()).run([], emit)
     assert result.status == "completed"
-    assert "search_coaches" not in [tool["function"]["name"] for tool in model.requests[0][1]]
-    assert tool_payloads(result.history)[0]["error"]["code"] == "tool_disabled"
+    assert "search_coaches" in [tool["function"]["name"] for tool in model.requests[0][1]]
+    assert tool_payloads(result.history)[0]["status"] == "ok"
+
+
+async def test_blocked_ticket_source_is_observation_then_model_can_ask_for_choice():
+    from travel_tools.common import ToolFailure
+
+    async def blocked(arguments):
+        raise ToolFailure("provider_access_blocked", "Official source blocked; no bypass.")
+
+    registry = ToolRegistry()
+    registry.register(
+        ToolSpec("search_trains", "query", SearchTrainsInput, SearchTrainsOutput, blocked, "ready")
+    )
+    model = FakeModel(
+        action(
+            call(
+                "search_trains",
+                {
+                    "origin": {"query": "上海虹桥"},
+                    "destination": {"query": "杭州东"},
+                    "departure_date": "2026-10-16",
+                    "travelers": {"adults": 1},
+                    "provider": "12306",
+                },
+                "train",
+            )
+        ),
+        action(call("ask_user", {"message": "官方查询受阻，要改查库存未知的候选吗？"}, "choice")),
+    )
+    _, emit = emitter()
+    outcome = await AgentRunner(model, registry).run([], emit)
+    assert outcome.status == "waiting_user" and outcome.error is None
+    assert tool_payloads(outcome.history)[0]["error"]["code"] == "provider_access_blocked"
 
 
 async def test_mixed_question_rejected_without_executing_any_tool():

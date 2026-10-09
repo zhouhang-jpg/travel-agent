@@ -117,6 +117,11 @@ class JuheTrainAdapter:
         self._client = client
 
     async def search(self, request: SearchTrainsInput) -> SearchTrainsOutput:
+        if request.direct_only or request.station_scope == "city":
+            raise ToolFailure(
+                "unsupported_parameters",
+                "This Juhe adapter cannot verify direct-only or city-wide scope.",
+            )
         if request.travelers.adults != 1 or request.travelers.children_ages:
             raise ToolFailure(
                 "unsupported_travelers", "Juhe train queries support one standard adult only."
@@ -184,6 +189,8 @@ class JuheTrainAdapter:
                 if not isinstance(row, dict):
                     raise ValueError("Invalid row")
                 service = _text(row.get("train_no"), required=True)
+                if request.train_numbers and service not in request.train_numbers:
+                    continue
                 kind = (
                     "high_speed"
                     if service.startswith(("G", "D"))

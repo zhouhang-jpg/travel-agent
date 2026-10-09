@@ -140,11 +140,7 @@ class AgentRunner:
                 "invalid_timezone", "当前时区配置不可用，请检查时区名称和时区数据库。"
             )
 
-        definitions = [deepcopy(ASK_USER_TOOL)] + [
-            definition
-            for definition in self.registry.model_definitions()
-            if definition.get("function", {}).get("name") not in {"search_coaches", "ask_user"}
-        ]
+        definitions = [deepcopy(ASK_USER_TOOL)] + self.registry.model_definitions()
         try:
             async with asyncio.timeout(self.limits.max_run_seconds):
                 await persist()
@@ -262,10 +258,6 @@ class AgentRunner:
 
     async def _execute(self, call: dict) -> dict:
         name = call["function"]["name"]
-        if name == "search_coaches":
-            return _tool_result(
-                call, code="tool_disabled", message="当前版本不支持长途大巴票查询。"
-            )
         try:
             arguments = json.loads(call["function"]["arguments"])
             if not isinstance(arguments, dict):

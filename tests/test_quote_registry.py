@@ -217,7 +217,7 @@ async def test_explicit_juhe_selection_and_failure_does_not_fall_back(
         assert calls == []
         result = await registry.dispatch("search_trains", TRANSPORT)
     assert len(calls) == 1
-    assert catalog(registry)["search_trains"]["description"] == JuheTrainAdapter.description
+    assert JuheTrainAdapter.description in catalog(registry)["search_trains"]["description"]
     if error_code:
         assert result.error.code == "provider_authentication"
     else:
@@ -304,3 +304,25 @@ async def test_jisu_dispatch_keeps_coaches_reference_only():
     assert definition["description"] == JisuCoachAdapter.description
     assert "NOT verified" in definition["description"]
     assert "offline-jisu-secret" not in result.model_dump_json() + json.dumps(registry.catalog())
+
+
+async def test_browser_sources_export_ordinary_coaches_and_close_without_querying():
+    registry = ToolRegistry()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(no_http)) as client:
+        register_quote_tools(
+            registry,
+            settings(
+                browser_queries_enabled=True,
+                train_search_provider="12306",
+                coach_search_provider="bus365",
+                train_fallback_provider="none",
+            ),
+            client,
+        )
+        assert {d["function"]["name"] for d in registry.model_definitions()} == {
+            "search_trains",
+            "search_flights",
+            "search_coaches",
+        }
+        assert "出行365" in catalog(registry)["search_coaches"]["description"]
+        await registry.close()

@@ -103,11 +103,7 @@ async def main():
         system = build_system_message(
             datetime.now(ZoneInfo("Asia/Shanghai")), "Asia/Shanghai", registry.catalog()
         )
-        definitions = [ASK_USER_TOOL] + [
-            item
-            for item in registry.model_definitions()
-            if item["function"]["name"] != "search_coaches"
-        ]
+        definitions = [ASK_USER_TOOL] + registry.model_definitions()
 
         async def probe(case):
             messages = [system, *case["messages"]]
@@ -162,7 +158,10 @@ async def main():
             async with semaphore:
                 return await probe(case)
 
-        results = await asyncio.gather(*(bounded(case) for case in CASES))
+        try:
+            results = await asyncio.gather(*(bounded(case) for case in CASES))
+        finally:
+            await registry.close()
     report = {"model": name, "cases": results}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

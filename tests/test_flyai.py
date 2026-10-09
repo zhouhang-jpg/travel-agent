@@ -69,6 +69,7 @@ def train_request(**overrides):
         "destination": {"query": "杭州"},
         "departure_date": "2026-10-16",
         "travelers": {"adults": 1},
+        "station_scope": "city",
     }
     return SearchTrainsInput.model_validate(data | overrides)
 
@@ -82,6 +83,29 @@ def hotel_request(**overrides):
         "rooms": 1,
     }
     return SearchHotelsInput.model_validate(data | overrides)
+
+
+async def test_train_direct_filter_does_not_confuse_enroute_stops_with_transfers(tmp_path):
+    payload = load_fixture("train")
+    payload["data"]["itemList"][0]["journeys"][0]["segments"][0]["stopInfos"] = ["经停站"]
+    client, _ = make_client(tmp_path, payload)
+    result = await FlyAITrainAdapter(client).search(train_request(direct_only=True))
+    assert len(result.offers) == 1 and result.offers[0].direct is True
+    assert result.offers[0].service_number == "D181"
+    assert result.offers[0].price.display.masked
+    assert result.offers[0].price.money is None
+
+
+async def test_train_exact_endpoint_filter_is_not_city_replacement(tmp_path):
+    client, _ = make_client(tmp_path, load_fixture("train"))
+    result = await FlyAITrainAdapter(client).search(
+        train_request(
+            origin={"query": "上海虹桥"},
+            destination={"query": "杭州东"},
+            station_scope="exact",
+        )
+    )
+    assert result.offers == [] and result.coverage.query_status == "filtered_empty"
 
 
 async def test_real_flight_shape_preserves_unknown_currency_and_inventory(tmp_path):
@@ -102,6 +126,11 @@ async def test_real_flight_shape_preserves_unknown_currency_and_inventory(tmp_pa
     assert offer.price.tax_basis == offer.price.fee_basis == "unknown"
     assert offer.inventory.status == "unknown"
     assert offer.departure_at is None  # Raw supplier timestamp has no UTC offset.
+    assert offer.departure_text == "2026-10-16 06:55:00"
+    assert offer.segments[0].departure_terminal == "T2"
+    assert offer.segments[0].origin_code == "PVG"
+    assert offer.operator is None and offer.marketing_carrier == "国航"
+    assert offer.operating_carrier is None
     assert executor.calls[0][0][-6:] == [
         "--origin",
         "上海",

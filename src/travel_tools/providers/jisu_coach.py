@@ -36,6 +36,10 @@ class JisuCoachAdapter:
         self._client = client
 
     async def search(self, request: SearchCoachesInput) -> SearchCoachesOutput:
+        if request.page != 1:
+            raise ToolFailure(
+                "unsupported_parameters", "Jisu reference channel has no page selector."
+            )
         if request.preferred_currency not in (None, "CNY"):
             raise ToolFailure("unsupported_currency", "Jisu coach reference fares are in CNY only.")
         if request.travelers.adults != 1 or request.travelers.children_ages:

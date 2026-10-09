@@ -6,8 +6,13 @@ import httpx
 
 from travel_tools.config import Settings, has_secret
 from travel_tools.providers import flyai
+from travel_tools.providers.browser_runtime import BrowserQueryRuntime
+from travel_tools.providers.bus365 import Bus365Adapter
+from travel_tools.providers.ceair import CeairAdapter
 from travel_tools.providers.jisu_coach import JisuCoachAdapter
 from travel_tools.providers.juhe_train import JuheTrainAdapter
+from travel_tools.providers.rail12306 import Rail12306Adapter
+from travel_tools.providers.ticket_routing import FlightRouter, TrainRouter
 from travel_tools.registry import ToolRegistry, ToolSpec
 from travel_tools.schemas.quotes import (
     SearchCoachesInput,
@@ -62,19 +67,53 @@ def register_quote_tools(
 ) -> None:
     """Wire adapters without installing software, executing the CLI or sending requests."""
     flyai_client, flyai_reason = _flyai_client(settings, registry.timeout_seconds)
-    flights = flyai.FlyAIFlightAdapter(flyai_client) if flyai_client else None
+    flight_adapters = {"flyai": flyai.FlyAIFlightAdapter(flyai_client)} if flyai_client else {}
     hotels = flyai.FlyAIHotelAdapter(flyai_client) if flyai_client else None
-    trains = None
+    train_adapters = {"flyai": flyai.FlyAITrainAdapter(flyai_client)} if flyai_client else {}
+    runtime = None
+    if getattr(settings, "browser_queries_enabled", False):
+        runtime = BrowserQueryRuntime(
+            timeout=min(
+                getattr(settings, "browser_query_timeout_seconds", 18),
+                registry.timeout_seconds * 0.8,
+            ),
+            cache_seconds=getattr(settings, "browser_query_cache_seconds", 0),
+        )
+        registry.add_closer(runtime.close)
+        train_adapters["12306"] = Rail12306Adapter(runtime, client)
+        flight_adapters["ceair"] = CeairAdapter(runtime)
+    flights = FlightRouter(flight_adapters) if flight_adapters else None
+    if flights and "flyai" in flight_adapters:
+        flights.description += " " + _FLYAI_LIMITS
     train_reason = "Configure the selected FlyAI railway provider: " + flyai_reason
     if settings.train_search_provider == "juhe":
         train_reason = "Set JUHE_TRAIN_API_KEY for the selected Juhe railway provider."
-        if has_secret(settings.juhe_train_api_key):
-            trains = JuheTrainAdapter(settings.juhe_train_api_key.get_secret_value(), client)
-    elif settings.train_search_provider == "flyai" and flyai_client:
-        trains = flyai.FlyAITrainAdapter(flyai_client)
-    coaches = (
+    if has_secret(settings.juhe_train_api_key):
+        train_adapters["juhe"] = JuheTrainAdapter(
+            settings.juhe_train_api_key.get_secret_value(), client
+        )
+    primary = settings.train_search_provider
+    fallback = getattr(settings, "train_fallback_provider", "none")
+    trains = (
+        TrainRouter(train_adapters, primary, fallback)
+        if primary in train_adapters or fallback in train_adapters
+        else None
+    )
+    if trains and primary == "juhe":
+        trains.description += " " + JuheTrainAdapter.description
+    if primary == "12306":
+        train_reason = "Enable BROWSER_QUERIES_ENABLED and install Playwright Chromium for 12306."
+    jisu = (
         JisuCoachAdapter(settings.jisu_coach_api_key.get_secret_value(), client)
         if has_secret(settings.jisu_coach_api_key)
+        else None
+    )
+    coach_provider = getattr(settings, "coach_search_provider", "jisu")
+    coaches = (
+        Bus365Adapter(runtime)
+        if coach_provider == "bus365" and runtime
+        else jisu
+        if coach_provider == "jisu"
         else None
     )
 
@@ -101,7 +140,8 @@ def register_quote_tools(
             SearchCoachesOutput,
             coaches,
             JisuCoachAdapter.description,
-            "Set JISU_COACH_API_KEY for reference coach schedules.",
+            "Enable BROWSER_QUERIES_ENABLED with Playwright Chromium for Bus365; "
+            "or explicitly select coach_search_provider=jisu with JISU_COACH_API_KEY.",
         ),
         (
             "search_hotels",

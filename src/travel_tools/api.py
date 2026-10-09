@@ -79,6 +79,7 @@ def create_app(
                 yield
             finally:
                 await app.state.agent.close()
+                await app.state.registry.close()
                 if store is None:
                     await database.close()
 

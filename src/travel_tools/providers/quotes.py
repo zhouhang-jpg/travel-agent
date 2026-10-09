@@ -1,7 +1,8 @@
-"""Extension points only; no supplier has been implemented or authorized yet.
+"""Supplier-neutral extension points for read-only search adapters.
 
-An adapter must use a documented customer-search API, not a merchant supply
-callback. Authentication, provider failures and unavailable capability must raise
+Adapters use configured customer-search services or independently queried public
+pages, never merchant supply callbacks or desktop browser sessions.
+Authentication, provider failures and unavailable capability must raise
 ToolFailure rather than returning an empty successful search.
 """
 

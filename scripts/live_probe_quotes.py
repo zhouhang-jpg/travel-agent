@@ -56,7 +56,11 @@ async def main():
     else:
         arguments.update(origin={"query": args.origin}, departure_date=day.isoformat())
     async with httpx.AsyncClient(trust_env=False) as client:
-        result = await build_registry(settings, client).dispatch(args.tool, arguments)
+        registry = build_registry(settings, client)
+        try:
+            result = await registry.dispatch(args.tool, arguments)
+        finally:
+            await registry.close()
     data = result.data or {}
     offers = data.get("offers", [])
     report = {

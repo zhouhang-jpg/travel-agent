@@ -2,9 +2,12 @@
 
 这是 `D:\travel-agent` 的多轮出行助手：React / TypeScript / Vite 前端配合 Python / FastAPI / Pydantic 后端，使用 pnpm、uv、pytest、Ruff。轻量 ReAct 由 LLM 根据当前目标与完整会话历史自主选择提问、查询、规划或调整方案。默认测试模型为 `deepseek-flash`，预留其他模型厂商接口；暂不保存跨会话偏好。
 
-**基础工具已验证；机票、火车与酒店统一先使用 FlyAI 候选查询。** 高德地点/详情/路线、和风每日天气、博查搜索与公开网页读取均已取得真实响应；行程校验通过正常、冲突和缺证样例。FlyAI 正式 Key 已返回火车和酒店候选，但价格、税费、房型与库存仍可能不完整；目前查询限一个成人，酒店限一个房间。聚合铁路为显式备选；本期 Agent 排除大巴票，不做大巴爬虫，保留旧适配代码供后续使用。
+**普通大巴、铁路和机票已完成有限真实样本的后端验证。** 普通大巴使用出行365，铁路优先12306，FlyAI保留为可配置且披露来源的降级或显式候选查询；机票用FlyAI快速候选，并可按需选择东航官网核实含税/税前展示价。网页查询由项目独立浏览器执行，不依赖Codex会话。酒店继续FlyAI；基础地图、天气、搜索和行程校验也已验证。当前票务只验证单成人，酒店限一个房间；列表价和库存快照不承诺可成功购票。机场巴士专线、高铁接驳专线及拼车/商务车暂缓。
 
 用户可以回答助手追问，或在本轮完成后继续修改需求。提示词不限定提问数量、查询顺序或答案模板；模型选择等待回复时单独调用 `ask_user`，普通正文表示本轮交付完成。执行中输入禁用，不支持插话或取消；刷新或关闭页面后后台继续，重新打开可恢复公开对话。
+澄清不是一次性的开场阶段：用户回答、工具返回新限制或修改需求后，模型可在同一会话再次
+`ask_user`；信息足够或用户授权自行决定时继续处理，不强制每轮提问。用户的新授权更新对应
+约束，不扩张局部授权，也不把已被替换的旧首选当成不可变。
 
 助手倾向尽早集中澄清可能导致方案返工的缺失条件，复用已知信息；信息充分时直接查询或规划，
 不知道去哪时可以先探索。新增 `get_attraction_opening_hours` 查询常规营业描述和计划日期公告
@@ -19,6 +22,8 @@
 ```powershell
 cd D:\travel-agent
 uv sync --locked
+# 使用公开网页票务来源时，先安装独立浏览器并设置 BROWSER_QUERIES_ENABLED=true。
+uv run playwright install chromium
 uv run pytest -q
 uv run ruff check .
 uv run ruff format --check .
@@ -38,7 +43,7 @@ pnpm dev
 
 Vite 将 `/api` 代理至后端。当前要求 **单 worker、单应用进程**，不支持多进程共享执行租约。默认数据库为 `sqlite+aiosqlite:///private/travel-agent.db`；可配置 `postgresql+asyncpg://...`，PostgreSQL 尚未真实联调。首次本地启动创建缺失表，后续 schema 升级从仓库根目录运行 `uv run alembic upgrade head`。迁移读取本地 Settings，不把凭据写进迁移文件；迁移测试使用独立临时数据库。
 
-`POST /conversations` 创建会话；`GET /conversations` 及 `GET /conversations/{id}` 恢复公开对话；`POST /conversations/{id}/messages` 接收消息并返回 SSE。执行中同会话的新输入返回 409，关闭 SSE 不取消后台任务。`GET /agent/health` 返回模型配置状态。Agent 在可用工具上添加 `ask_user` 并排除 `search_coaches`；底层工具目录仍保留全部契约。
+`POST /conversations` 创建会话；`GET /conversations` 及 `GET /conversations/{id}` 恢复公开对话；`POST /conversations/{id}/messages` 接收消息并返回 SSE。执行中同会话的新输入返回 409，关闭 SSE 不取消后台任务。`GET /agent/health` 返回模型配置状态。Agent 导出已配置工具（含普通大巴）并添加 `ask_user`；底层工具目录保留全部契约。
 
 应用层不限制完整上下文字符数、模型输出 token 数、模型响应字节数、追问消息长度或工具调用次数；完整历史不摘要或裁剪，请求不传 `max_tokens` 或 `max_completion_tokens`，输出由供应商默认策略及其自身容量决定。供应商截断或拒绝仍明确报告并保留执行记录。默认每次运行最多 12 次模型决策、300 秒，均可配置；单次模型请求 120 秒。模型默认启用思考、`reasoning_effort=high`。这些运行预算不是业务步骤，失败不自动更换模型或供应商。
 
@@ -67,6 +72,8 @@ uv run python scripts/export_schemas.py
 uv run python scripts/live_probe_agent.py --live
 uv run python scripts/live_probe_clarification.py --live
 uv run python scripts/live_probe_opening_hours.py --live
+uv run python scripts/live_probe_tickets.py --live
+uv run python scripts/live_probe_followup.py --live
 pnpm --dir frontend test
 pnpm --dir frontend build
 ```
@@ -83,7 +90,7 @@ uv run python scripts/live_probe_quotes.py --tool search_flights --flyai-demo
 uv run python scripts/live_probe_quotes.py --tool search_trains
 ```
 
-`live_probe_quotes.py` 默认查询七天后的单成人样例，支持 `--origin`、`--destination`、`--date`，只输出候选数量及字段完整性统计。它不补全缺失价格、税费或库存。铁路默认 `TRAIN_SEARCH_PROVIDER=flyai`，如需聚合必须显式设为 `juhe`；缺配置或上游失败均不自动切换供应商。`live_probe_agent.py` 使用开发样例和独立探针数据库演示追问、补充、查询、修改；这是一条验收路径，不是固定 Agent workflow。
+`live_probe_quotes.py` 默认查询七天后的单成人样例，支持 `--origin`、`--destination`、`--date`，只输出候选数量及字段完整性统计。它不补全缺失价格、税费或库存。铁路默认 `TRAIN_SEARCH_PROVIDER=12306`；`TRAIN_FALLBACK_PROVIDER=flyai`允许默认来源受阻时明确披露降级，显式指定来源、未开售和空结果不降级；聚合须显式选`juhe`。`live_probe_tickets.py`通过正在运行的HTTP后端少量验证大巴、席别/候补、直达过滤和机票税费展示。`live_probe_followup.py`用真实模型与铁路工具验证再次追问、用户选择后继续和部分回答补问，不修改用户会话。`live_probe_agent.py`使用独立探针数据库；这些都是验收样例，不是固定业务workflow。
 
 ## 设计与验证材料
 
@@ -93,6 +100,7 @@ uv run python scripts/live_probe_quotes.py --tool search_trains
 - [本次验证与待办状态](docs/verification.md)
 - [高德接口依据](docs/providers/amap.md)、[和风接口依据](docs/providers/qweather.md)、[博查接口依据](docs/providers/bocha.md)
 - [飞猪 FlyAI](docs/providers/flyai.md)、[聚合火车](docs/providers/juhe-train.md)、[极速大巴](docs/providers/jisu-coach.md)、[携程及铁路供应商比较](docs/providers/ticket-suppliers.md)
+- [独立浏览器票务来源、配置和事实边界](docs/providers/browser-tickets.md)
 - [行程校验规则](docs/itinerary.md)、[票务与酒店契约及供应商准入](docs/quotes.md)
 - [正常样例](examples/itinerary-valid.json)、[冲突样例](examples/itinerary-invalid.json)、[证据不足样例](examples/itinerary-unknown.json)
 

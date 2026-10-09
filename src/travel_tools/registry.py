@@ -68,6 +68,15 @@ class ToolRegistry:
         self._tools: dict[str, ToolSpec] = {}
         self.timeout_seconds = timeout_seconds
         self._semaphore = asyncio.Semaphore(max_concurrent_calls)
+        self._closers: list[Callable[[], Awaitable[None]]] = []
+
+    def add_closer(self, closer: Callable[[], Awaitable[None]]) -> None:
+        self._closers.append(closer)
+
+    async def close(self) -> None:
+        for closer in self._closers:
+            await closer()
+        self._closers.clear()
 
     def register(self, spec: ToolSpec) -> None:
         if spec.name in self._tools:
