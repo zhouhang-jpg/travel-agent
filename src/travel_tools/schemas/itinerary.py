@@ -37,10 +37,11 @@ class TransferEvidence(StrictModel):
     to_item_id: Identifier
     minimum_minutes: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     sources: list[Source] = Field(default_factory=list)
+    source_ids: list[Identifier] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def sourced_duration(self) -> "TransferEvidence":
-        if self.minimum_minutes is not None and not self.sources:
+        if self.minimum_minutes is not None and not (self.sources or self.source_ids):
             raise ValueError("a known transfer duration requires a source")
         return self
 
@@ -50,6 +51,7 @@ class OpeningEvidence(StrictModel):
     state: Literal["open_windows", "closed", "unknown"]
     windows: list[TimeInterval] = Field(default_factory=list)
     sources: list[Source] = Field(default_factory=list)
+    source_ids: list[Identifier] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def consistent_windows(self) -> "OpeningEvidence":
@@ -57,7 +59,7 @@ class OpeningEvidence(StrictModel):
             raise ValueError("open_windows requires at least one interval")
         if self.state != "open_windows" and self.windows:
             raise ValueError("only open_windows may supply opening intervals")
-        if self.state != "unknown" and not self.sources:
+        if self.state != "unknown" and not (self.sources or self.source_ids):
             raise ValueError("known opening restrictions require a source")
         return self
 
@@ -95,18 +97,26 @@ class PlannedCost(StrictModel):
     tax_basis: Literal["included", "excluded", "partial", "unknown"] = "unknown"
     fee_basis: Literal["included", "excluded", "partial", "unknown"] = "unknown"
     sources: list[Source] = Field(default_factory=list)
+    source_ids: list[Identifier] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def honest_cost(self) -> "PlannedCost":
         if (self.kind == "unknown") != (self.total is None):
             raise ValueError("unknown costs require null total; known costs require total")
-        if self.total is not None and not self.sources:
+        if self.total is not None and not (self.sources or self.source_ids):
             raise ValueError("known costs require a source")
         return self
 
 
 class ValidateItineraryInput(StrictModel):
     planning_window: TimeInterval
+    source_catalog: dict[Identifier, Source] = Field(
+        default_factory=dict,
+        description=(
+            "Shared evidence sources, keyed by ID. "
+            "Evidence may use source_ids instead of repeating sources."
+        ),
+    )
     items: list[ScheduledItem] = Field(default_factory=list, max_length=500)
     transfers: list[TransferEvidence] = Field(default_factory=list, max_length=1000)
     opening_hours: list[OpeningEvidence] = Field(default_factory=list, max_length=1000)
@@ -121,6 +131,16 @@ class ValidateItineraryInput(StrictModel):
 
     @model_validator(mode="after")
     def consistent_references(self) -> "ValidateItineraryInput":
+        for entry in [*self.transfers, *self.opening_hours, *self.costs]:
+            if any(source_id not in self.source_catalog for source_id in entry.source_ids):
+                raise ValueError("source_ids must reference existing source_catalog entries")
+            if entry.source_ids:
+                entry.sources = [
+                    *entry.sources,
+                    *(self.source_catalog[source_id] for source_id in entry.source_ids),
+                ]
+                # Resolve once so subsequent model validation/assignment is idempotent.
+                entry.source_ids = []
         for name in ("items", "fixed_commitments", "lodging", "costs"):
             ids = [entry.id for entry in getattr(self, name)]
             if len(ids) != len(set(ids)):

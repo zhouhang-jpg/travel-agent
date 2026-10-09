@@ -35,6 +35,22 @@ class DispatchRequest(StrictModel):
     call_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
+def _model_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Remove display titles only; keep every validation/default/description rule."""
+    result = dict(schema)
+    result.pop("title", None)
+    for keyword in ("properties", "$defs", "patternProperties", "dependentSchemas"):
+        if isinstance(result.get(keyword), dict):
+            result[keyword] = {key: _model_schema(value) for key, value in result[keyword].items()}
+    for keyword in ("items", "additionalProperties", "not", "contains", "if", "then", "else"):
+        if isinstance(result.get(keyword), dict):
+            result[keyword] = _model_schema(result[keyword])
+    for keyword in ("anyOf", "oneOf", "allOf", "prefixItems"):
+        if isinstance(result.get(keyword), list):
+            result[keyword] = [_model_schema(value) for value in result[keyword]]
+    return result
+
+
 @dataclass(frozen=True)
 class ToolSpec:
     name: str
@@ -86,7 +102,7 @@ class ToolRegistry:
                 "function": {
                     "name": spec.name,
                     "description": spec.description,
-                    "parameters": spec.input_type.model_json_schema(),
+                    "parameters": _model_schema(spec.input_type.model_json_schema()),
                 },
             }
             for spec in self._tools.values()

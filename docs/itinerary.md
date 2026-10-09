@@ -31,6 +31,10 @@ assert result.status == "unknown"
 
 ## 输入的准确含义
 
+重复来源可在 `source_catalog` 中按 ID 定义一次，并在 `transfers`、`opening_hours`、`costs`
+的条目中以 `source_ids` 引用，也可继续直接传 `sources`。已知证据仍必须有实际来源；不存在的
+引用会被拒绝，解析后恢复完整来源，再执行原有校验。此机制只减少重复填写，不增加证据可信度。
+
 - `planning_window`：本次安排的时间范围。`items` 是同一出行方需要实际占用的时间块，包含需要约束时间的活动、工作安排和交通等；住宿另用 `lodging`。
 - 时间使用带 UTC 偏移的日期时间；比较和时间差按 UTC 绝对时刻进行。结束必须晚于开始。时间块采用半开区间 `[start, end)`，首尾相接不算重叠。
 - `start_place_id` / `end_place_id`：时间块开始和结束所在地点的同一命名空间 ID。相邻块位置完全一致可确认零转场；缺失 ID 不表示相同地点。交通时间块可使用不同的起终点。

@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from travel_agent.models import ChatModel, ModelError
 from travel_agent.prompts import ASK_USER_TOOL, build_system_message
+from travel_agent.tool_encoding import encode_tool_result
 from travel_tools.common import utc_now
 from travel_tools.registry import ErrorInfo, ToolRegistry, ToolResult
 
@@ -295,7 +296,11 @@ class AgentRunner:
             return _tool_result(call, data={"message": question, "state": "waiting_user"})
         try:
             result = await self.registry.dispatch(name, arguments, call_id=call["id"])
-            return {"role": "tool", "tool_call_id": call["id"], "content": result.model_dump_json()}
+            return {
+                "role": "tool",
+                "tool_call_id": call["id"],
+                "content": encode_tool_result(result.model_dump(mode="json")),
+            }
         except Exception:
             return _tool_result(
                 call, code="tool_exception", message="工具执行异常；没有获得可用结果。"

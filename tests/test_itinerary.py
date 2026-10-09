@@ -88,6 +88,29 @@ def check(data):
     return asyncio.run(validate_itinerary(ValidateItineraryInput.model_validate(data)))
 
 
+def test_shared_source_references_preserve_validation_and_resolve_once(plan):
+    expected = check(plan)
+    compact = deepcopy(plan)
+    compact["source_catalog"] = {"evidence": SOURCE}
+    for name in ("transfers", "opening_hours", "costs"):
+        for entry in compact[name]:
+            entry.pop("sources")
+            entry["source_ids"] = ["evidence"]
+    parsed = ValidateItineraryInput.model_validate(compact)
+    assert asyncio.run(validate_itinerary(parsed)) == expected
+    assert len(parsed.costs[0].sources) == 1
+    revalidated = ValidateItineraryInput.model_validate(parsed.model_dump())
+    assert len(revalidated.costs[0].sources) == 1
+
+
+@pytest.mark.parametrize("name", ["transfers", "opening_hours", "costs"])
+def test_unknown_shared_source_is_rejected_instead_of_becoming_evidence(plan, name):
+    plan[name][0].pop("sources")
+    plan[name][0]["source_ids"] = ["missing"]
+    with pytest.raises(ValidationError, match="source_catalog"):
+        ValidateItineraryInput.model_validate(plan)
+
+
 def statuses(result, category):
     return [entry.status for entry in result.checks if entry.category == category]
 

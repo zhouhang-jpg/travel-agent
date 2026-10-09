@@ -7,6 +7,7 @@ import pytest
 
 from travel_agent.models import ModelError
 from travel_agent.runner import AgentRunner, RunLimits, repair_history
+from travel_agent.tool_encoding import decode_tool_result
 from travel_tools.common import StrictModel, ToolPayload
 from travel_tools.registry import ToolRegistry, ToolSpec
 
@@ -91,6 +92,33 @@ def emitter():
 
 def tool_payloads(history):
     return [json.loads(message["content"]) for message in history if message["role"] == "tool"]
+
+
+async def test_lossless_tool_tables_are_persisted_and_replayed_without_history_changes():
+    class ManyResults(ToolPayload):
+        records: list[dict]
+
+    records = [{"id": i, "inventory_status": "unknown", "duration_s": None} for i in range(30)]
+
+    async def search(arguments):
+        return ManyResults(records=records)
+
+    registry = ToolRegistry()
+    registry.register(ToolSpec("search_places", "search", Input, ManyResults, search, "ready"))
+    model = FakeModel(action(call()), answer())
+    checkpoints = []
+
+    async def checkpoint(history):
+        checkpoints.append(deepcopy(history))
+
+    events, emit = emitter()
+    outcome = await AgentRunner(model, registry).run([], emit, checkpoint=checkpoint)
+    tool = outcome.history[1]
+    assert json.loads(tool["content"])["data"]["encoding"] == "travel-table-v1"
+    assert decode_tool_result(tool["content"])["data"]["records"] == records
+    assert model.requests[1][0][1:] == outcome.history[:-1]
+    assert checkpoints[-1] == outcome.history
+    assert "inventory_status" not in json.dumps(events)
 
 
 async def test_question_resume_full_history_and_reasoning_private():

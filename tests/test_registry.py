@@ -5,6 +5,7 @@ from pydantic import Field
 
 from travel_tools.common import StrictModel, ToolFailure, ToolPayload
 from travel_tools.registry import ToolRegistry, ToolSpec
+from travel_tools.schemas.itinerary import ValidateItineraryInput
 
 
 class Input(StrictModel):
@@ -26,6 +27,20 @@ def registry(callback=handler, **kwargs):
         ToolSpec("missing", "missing", Input, Output, None, "not_implemented", "No supplier.")
     )
     return result
+
+
+def test_model_schema_retains_title_property_and_all_validation_rules():
+    tools = ToolRegistry()
+    tools.register(
+        ToolSpec("validate", "validate", ValidateItineraryInput, Output, handler, "ready")
+    )
+    schema = tools.model_definitions()[0]["function"]["parameters"]
+    item = schema["$defs"]["ScheduledItem"]
+    assert "title" in item["properties"] and "title" in item["required"]
+    assert item["properties"]["title"]["minLength"] == 1
+    assert "title" not in item["properties"]["title"]
+    assert item["additionalProperties"] is False
+    assert schema["properties"]["items"]["maxItems"] == 500
 
 
 async def test_definition_filters_and_dispatch():
