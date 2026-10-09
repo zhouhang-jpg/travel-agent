@@ -91,6 +91,6 @@ uv run python scripts/live_probe_quotes.py --tool search_trains
 
 来源、查询时间、数据时间、坐标系、价格性质、人数/房间/晚数、税费和库存语义分别保留。地图费用与网页内容不能替代指定日期的可售报价。校验器只检查传入证据的一致性，缺证据返回 `unknown`。
 
-Git 已在本目录初始化。GitHub 远程仓库尚未创建或关联；当前工具没有建仓接口，本机没有 `gh`，未读取私有应用配置或借用其他项目凭据。CI 配置已纳入代码，但在创建并推送 GitHub 仓库前尚未在 GitHub 执行。
+GitHub 仓库为 [zhouhang-jpg/travel-agent](https://github.com/zhouhang-jpg/travel-agent)，origin 已关联并正常推送 main。上传前检查全部本地提交未包含本地已配置密钥、私有会话、数据库或忽略目录；GitHub Actions 状态以仓库页面为准，不能据本地测试通过宣称 CI 通过。
 
 原讨论聊天只交流需求与方案，本项目聊天负责提示词、代码、调试和验证。
