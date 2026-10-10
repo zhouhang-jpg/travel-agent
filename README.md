@@ -74,6 +74,7 @@ uv run python scripts/live_probe_clarification.py --live
 uv run python scripts/live_probe_opening_hours.py --live
 uv run python scripts/live_probe_tickets.py --live
 uv run python scripts/live_probe_followup.py --live
+uv run python scripts/live_probe_weather.py --live --model
 pnpm --dir frontend test
 pnpm --dir frontend build
 ```

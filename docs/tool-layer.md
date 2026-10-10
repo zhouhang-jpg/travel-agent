@@ -38,7 +38,7 @@
 | get_place_details | 一个高德 POI ID | found 与详情；合法未找到和供应商错误分开 |
 | get_attraction_opening_hours | 名称、可选城市/POI ID/参观日期/建议官网 URL | 地图常规营业原文、日期公告搜索及网页证据、身份候选、失败和未确认状态；见 opening-hours.md |
 | get_routes | GCJ-02 起终点、模式；公交城市编码及可选出发时间 | 米/秒、路线步骤、参考费用；不是票价/库存 |
-| get_weather | 显式 CRS、区域、1–10 日、语言 | 带时区的实际日预报区间、数值/单位、归因；不覆盖任意未来日期 |
+| get_weather | 显式CRS/区域；daily/hourly/alerts/indices模式；带时区目标时刻/时段或日期 | 实际日/小时预报、当前预警/每日指数、数值单位与归因；时间匹配/部分/缺口/超覆盖明确区分，不外推或插值 |
 | search_web | 关键词、时间范围、结果数 | 来源链接、摘要、可空发布时间及原文日期；不可信外部内容 |
 | fetch_webpage | URL、最大正文字符数 | 公共 HTML/文本、来源、最终 URL、截断标记 |
 | validate_itinerary | 行程及证据、明确的固定安排/住宿/费用覆盖范围 | 各项检查与 valid/invalid/unknown；仅验证一致性 |

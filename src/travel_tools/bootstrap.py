@@ -82,8 +82,13 @@ def build_registry(settings: Settings, client: httpx.AsyncClient) -> ToolRegistr
         ),
         (
             "get_weather",
-            "Get QWeather daily forecasts for returned intervals; "
-            "mainland GCJ-02, other regions WGS-84.",
+            "查询和风天气，mode=daily（默认1–10天，可用forecast_date选日）；"
+            "mode=hourly按带UTC偏移的target_time或[start_time,end_time)查询具体时刻/时段。"
+            "hours可指定1–240，未指定时按目标自动请求必要小时数。非整点只返回邻近时次参考，"
+            "超覆盖或缺小时明确标记，不插值、不用每日预报冒充小时天气。"
+            "mode=alerts只查当前官方预警，不预测未来是否安全；mode=indices查1/3天每日指数，"
+            "默认运动/穿衣/UV/旅游，可指定index_types，非中国仅1–5。"
+            "保留实际时间、单位、缺失、归因和数据边界；大陆GCJ-02，其他WGS-84。按需选模式，不必全部查。",
             GetWeatherInput,
             GetWeatherOutput,
             weather,
