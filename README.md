@@ -95,6 +95,7 @@ uv run python scripts/live_probe_quotes.py --tool search_trains
 
 ## 设计与验证材料
 
+- [下一阶段技术路线、迁移接缝与验收](docs/technical-roadmap.md)、[ADR-0001：持久化自主ReAct](docs/adr/0001-durable-react-runtime.md)（设计已落盘，运行器尚未切换）
 - [工具层设计与共同契约](docs/tool-layer.md)
 - [景点开放时间证据与日期边界](docs/opening-hours.md)
 - [Agent 行为与完整上下文](docs/agent-behavior.md)、[模型接口与私有字段](docs/providers/deepseek.md)、[前端说明](frontend/README.md)

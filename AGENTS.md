@@ -14,7 +14,7 @@
 
 - 前端：React、TypeScript、Vite；包管理使用 pnpm。
 - 后端：Python、FastAPI、Pydantic；开发工具使用 uv、pytest、Ruff。
-- Agent：自行实现轻量 ReAct 运行器，不预设固定业务步骤。
+- Agent当前仍为自研轻量ReAct运行器。下一阶段选定低层LangGraph StateGraph验证持久化执行和可恢复追问，复用ChatModel/ToolRegistry与原始DeepSeek消息；通过恢复/行为验收后才替换新运行默认引擎。迁移期间旧runner作基线/回退，不预设固定业务步骤，挂起图运行绑定engine/schema版本，不直接交旧runner。路线与门槛见docs/technical-roadmap.md及ADR-0001。
 - 持久化：PostgreSQL、SQLAlchemy、Alembic。
 - 前后端通信：HTTP 与 SSE。
 - 首期数据服务：高德负责地点、地理编码和路线；和风天气负责天气；博查负责网页搜索。具体账号权限、配额和端点需在接入时验证。
