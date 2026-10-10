@@ -64,6 +64,7 @@
 ## 版本管理
 
 - 开发使用 Git 管理，远程仓库托管到 GitHub。
+- 项目采用 MIT 许可证，Copyright (c) 2026 zhouhang-jpg，根目录 LICENSE 为许可正文。第三方依赖、外部 API、模型和数据分别遵循各自许可或服务条款，不受本项目 MIT 授权覆盖。
 - 代码、系统提示词、工具定义、数据结构和必要的开发文档一同纳入版本管理。
 - GitHub 仓库已关联 https://github.com/zhouhang-jpg/travel-agent ，origin 使用 HTTPS；main 已正常推送并核对远端提交。保持用户设定的仓库可见性，凭据、数据库和私人会话不入库。
 

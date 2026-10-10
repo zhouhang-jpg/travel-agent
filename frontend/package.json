@@ -1,6 +1,7 @@
 {
   "name": "travel-agent-web",
   "private": true,
+  "license": "MIT",
   "version": "0.1.0",
   "type": "module",
   "packageManager": "pnpm@12.3.4",
