@@ -120,6 +120,26 @@ button { color: inherit; }
 .composer-footnote { display: flex; justify-content: space-between; gap: 15px; max-width: 850px; margin: 10px auto 0; font-size: 9px; color: #a1aa97; }
 .model-label { color: #aab1a1; font-size: 9px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.itinerary-panel { max-width: 850px; margin: 22px auto; border: 1px solid #dce4d7; border-radius: 14px; background: #f9fbf6; font-size: 13px; color: #344b40; }
+.itinerary-header { display: flex; gap: 16px; align-items: center; justify-content: space-between; padding: 18px; }
+.itinerary-header button { display: grid; gap: 6px; text-align: left; border: 0; background: none; color: inherit; }
+.itinerary-header button span { font-size: 11px; color: #6c8173; }
+.itinerary-header strong { font-size: 17px; }
+.itinerary-header select { padding: 7px; max-width: 145px; border: 1px solid #dce4d7; border-radius: 7px; background: white; }
+.itinerary-body { padding: 0 20px 18px; line-height: 1.8; }
+.plan-context, .plan-item time { color: #6b7e72; font-size: 11px; }
+.plan-item { display: flex; flex-wrap: wrap; gap: 6px 12px; border-left: 2px solid #b3c9b5; padding: 8px 12px; margin: 12px 0; }
+.plan-item time { width: 100%; }
+.plan-item p { width: 100%; margin: 0; }
+.plan-lock { font-size: 10px; padding: 1px 7px; border-radius: 5px; background: #e4ece0; }
+.itinerary-body details { border-top: 1px solid #e0e7da; padding: 12px 0; }
+.itinerary-body summary { cursor: pointer; font-weight: 600; }
+.itinerary-body ul { padding-left: 20px; overflow-wrap: anywhere; }
+.itinerary-body li { margin: 8px 0; }
+.itinerary-body li strong + span { display: block; }
+.plan-notice, .plan-pending { color: #926021; }
+.itinerary-body a { color: var(--teal); }
+.view-itinerary { border: 1px solid #dce4d7; border-radius: 6px; background: #f9fbf6; padding: 5px 8px; font-size: 10px; color: var(--teal); white-space: nowrap; }
 .sidebar-scrim { display: none; }
 @media (min-width: 1500px) { .welcome { padding-top: 11vh; } }
 @media (max-width: 1050px) { .sidebar { width: 235px; padding-right: 13px; padding-left: 13px; } .topbar { padding: 0 24px; } .chat-scroll { padding: 0 25px; } .composer-area { padding-right: 25px; padding-left: 25px; } .welcome { padding-top: 40px; } .example-card { padding: 15px 12px; } .example-top { margin-bottom: 16px; } .example-card strong { font-size: 11px; } .notice { margin-right: 25px; margin-left: 25px; } }

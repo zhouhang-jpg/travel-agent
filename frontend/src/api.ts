@@ -1,5 +1,5 @@
 import { readSSE } from './sse';
-import type { AgentEvent, Conversation, ConversationSummary, Health } from './types';
+import type { AgentEvent, Conversation, ConversationSummary, Health, ItineraryVersion, ItinerarySummary } from './types';
 
 const ROOT = '/api';
 
@@ -37,6 +37,10 @@ export const api = {
   health: () => request<Health>('/agent/health'),
   list: () => request<{ items: ConversationSummary[] }>('/conversations'),
   get: (id: string) => request<Conversation>(`/conversations/${encodeURIComponent(id)}`),
+  itineraries: (id: string) => request<{ current_id: string | null; items: ItinerarySummary[] }>(
+    `/conversations/${encodeURIComponent(id)}/itineraries`),
+  itinerary: (id: string, versionId: string) => request<ItineraryVersion>(
+    `/conversations/${encodeURIComponent(id)}/itineraries/${encodeURIComponent(versionId)}`),
   create: () => request<Conversation>('/conversations', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

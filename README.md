@@ -96,7 +96,8 @@ uv run python scripts/live_probe_quotes.py --tool search_trains
 ## 设计与验证材料
 
 - [持久运行实现与验收](docs/durable-runtime.md)、[技术路线](docs/technical-roadmap.md)、[ADR-0001：持久化自主ReAct](docs/adr/0001-durable-react-runtime.md)
-- [下一轮：已有行程的可靠局部修改](docs/next-iteration.md)（待实施，与恢复迁移独立验收）
+- [行程版本与可靠局部修改](docs/itinerary-versions.md)（已实现，与恢复迁移独立验收）
+- [后续迭代顺序](docs/next-iteration.md)（供应商并行、方案比较、地图/导出与主动提醒仍待实施）
 - [工具层设计与共同契约](docs/tool-layer.md)
 - [景点开放时间证据与日期边界](docs/opening-hours.md)
 - [Agent 行为与完整上下文](docs/agent-behavior.md)、[模型接口与私有字段](docs/providers/deepseek.md)、[前端说明](frontend/README.md)

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api, APIError } from './api';
+import { ItineraryPanel } from './ItineraryPanel';
 import type { AgentEvent, Conversation, ConversationStatus, ConversationSummary, Health } from './types';
 
 const STATUS: Record<ConversationStatus, string> = {
@@ -14,6 +15,7 @@ const TOOL_LABELS: Record<string, string> = {
   get_weather: '查询天气', search_web: '查找出行资料', web_search: '查找出行资料',
   fetch_webpage: '阅读来源资料', search_flights: '查询航班', search_trains: '查询火车',
   search_coaches: '查询大巴', search_hotels: '查询住宿', validate_itinerary: '检查行程安排',
+  save_itinerary: '保存行程修改',
 };
 const EXAMPLES = [
   { mark: '01', title: '去一座喜欢的城市', text: '从上海出发，去成都玩 4 天，想吃当地美食、看看街巷，节奏轻松一点。' },
@@ -179,6 +181,8 @@ export default function App() {
     } else if (event.type === 'tool_finished') {
       setProgress((previous) => ({ ...previous, [id]: event.status === 'error'
         ? '部分信息暂时无法获取，正在继续安排…' : '正在整理查询结果…' }));
+    } else if (event.type === 'itinerary_updated') {
+      void refreshConversation(id).catch(() => undefined);
     } else if (event.type === 'message') {
       if (event.role === 'user') return;
       setSnapshots((previous) => {
@@ -197,7 +201,7 @@ export default function App() {
     } else if (event.type === 'error') {
       setErrors((previous) => ({ ...previous, [id]: event.message || '执行出错，请稍后重试。' }));
     }
-  }, []);
+  }, [refreshConversation]);
 
   useEffect(() => {
     if (!activeId || active?.status !== 'running' || streaming.has(activeId) || !active.engine) return;
@@ -313,6 +317,7 @@ export default function App() {
         <div className="topbar-title"><button className="icon-button mobile-menu" aria-label="打开会话列表" onClick={() => setSidebarOpen(true)}><Icon name="menu" /></button>
           <span>{active?.title || (activeId ? '载入会话' : '新的旅程')}</span>
           {active && <span className={`status-tag ${running ? 'is-running' : ''}`}>{running ? '正在安排' : STATUS[active.status] ?? '会话'}</span>}
+          {active?.itinerary && <button className="view-itinerary" onClick={() => document.getElementById('current-itinerary')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>查看行程 · v{active.itinerary.revision}</button>}
         </div>
         <div className="connection"><span className={`connection-dot ${health?.model_configured ? 'ready' : ''}`} /><span>{health?.model_configured ? '助手已就绪' : health ? '等待模型配置' : '连接服务中'}</span>
           <button className="icon-button" onClick={retryConnection} aria-label="重新连接服务" title="重新连接服务"><Icon name="refresh" size={16} /></button>
@@ -322,6 +327,7 @@ export default function App() {
       {(globalError || unavailable) && <div className="notice" role="alert"><span>{globalError || '请先在后端配置 DeepSeek API Key，再开始你的旅程。'}</span><button onClick={retryConnection}>重新连接</button></div>}
 
       <div className="chat-scroll">
+        {active?.itinerary && activeId && <ItineraryPanel key={activeId} conversationId={activeId} current={active.itinerary} />}
         {!activeId || (active && active.transcript.length === 0) ? <section className="welcome">
           <div className="welcome-eyebrow"><span />从这里，走向想去的地方</div>
           <h1>下一站，<br /><span>去哪里？</span></h1>
