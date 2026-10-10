@@ -114,3 +114,10 @@ SQLite 与真实 PostgreSQL 的独立 OS 进程 os._exit(73)/重启验证三个�
 真实 Chromium 两项查询 0.870 秒，独立 context、执行重叠；实际取消清理约 0.096 秒，
 运行超时报 provider_timeout，关闭后新增 Chromium PID、工作线程、缓存项均为 0。
 有限样例不替代所有网站、操作系统和供应商账号的持续验收。
+
+本轮完整 Python 回归 712 项通过（含真实 PostgreSQL）；最后追加缓存状态与进度刷新断言后，
+查询专项 22 项通过，前端 9 项及 TS/Vite 构建通过，Ruff check/format 与 3 项示例通过。
+并行恢复和追问复查 8 项通过。完整回归与后来追加的专项分别记录，不混称一次运行。
+实现提交 355923e。本地后端已更新，无数据库 schema 迁移；重启前确认 0 运行中会话，
+通过 SQLite backup API 备份应用库及检查点库至
+private/backups/queries-20261010T103241Z，重启保留当时全部 9 个会话。
