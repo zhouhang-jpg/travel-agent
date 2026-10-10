@@ -7,6 +7,7 @@ import httpx
 from travel_tools.config import Settings, has_secret
 from travel_tools.itinerary import validate_itinerary
 from travel_tools.opening_hours import OpeningHoursLookup
+from travel_tools.plan_comparison import compare_itinerary_options
 from travel_tools.providers.amap import AmapAdapter
 from travel_tools.providers.bocha import BochaAdapter
 from travel_tools.providers.qweather import QWeatherAdapter
@@ -25,6 +26,10 @@ from travel_tools.schemas.places import (
     GetRoutesOutput,
     SearchPlacesInput,
     SearchPlacesOutput,
+)
+from travel_tools.schemas.plan_comparison import (
+    CompareItineraryOptionsInput,
+    CompareItineraryOptionsOutput,
 )
 from travel_tools.schemas.weather import GetWeatherInput, GetWeatherOutput
 from travel_tools.schemas.web_search import SearchWebInput, SearchWebOutput
@@ -184,6 +189,22 @@ def build_registry(settings: Settings, client: httpx.AsyncClient) -> ToolRegistr
             ValidateItineraryInput,
             ValidateItineraryOutput,
             validate_itinerary,
+            "ready",
+            execution="parallel_read",
+        )
+    )
+    registry.register(
+        ToolSpec(
+            "compare_itinerary_options",
+            "按同一时间窗、人数、房间、预算及必要费用口径比较已提供的完整候选行程。"
+            "复用行程校验，计算费用/交通/活动时间并返回Pareto非支配候选与取舍；"
+            "未知、参考价格或税费不全不会当成完整报价，不同币种不自动换算。"
+            "仅检查传入候选及证据的一致性，不认证来源真实性或用户条件完整覆盖；"
+            "不是全市场最优、可售或预订保证。未核实证据不能宣称完整方案可行。"
+            "由你判断是否需要比较，不要求每轮提供多方案。",
+            CompareItineraryOptionsInput,
+            CompareItineraryOptionsOutput,
+            compare_itinerary_options,
             "ready",
             execution="parallel_read",
         )

@@ -1,0 +1,887 @@
+{
+  "schema_version": "1.0",
+  "suite_version": "2026-10-10-v2",
+  "description": "统一正式LangGraph/HTTP/SSE的中文多轮评测；offline仅验证运行契约，live明确模型与供应商模式。结构化断言不包含固定工具次序或固定追问次数评分；未定义语义oracle时unknown。",
+  "cases": [
+    {
+      "id": "atomic_claim_review",
+      "description": "给定合成文档及三项原子结论，只读核对错误人数、记录金额相等和无法证明预算内；offline/live共用原始输入，无外部供应商。",
+      "tags": [
+        "atomic_claim_review",
+        "grounding",
+        "synthetic",
+        "read_only",
+        "unknown_cost"
+      ],
+      "turns": [
+        {
+          "content": "这是合成评测数据，只用于检查工具契约，不代表现实报价或已核验来源。请使用review_itinerary对下面给定document只读核对三项claims，直接使用提供的参数，保留claim IDs以对应结果。人数claim故意与document不一致，也应原样提交让工具反馈。planned金额仅核对结构化记录，参考金额及未知费用不能证明预算内。无需保存行程，无需查询外部来源，也无需追问，简要解释工具核对结果。参数：{\"document\":{\"title\":\"合成评测：只读原子结论核对\",\"planning_window\":{\"start\":\"2026-10-18T08:00:00+08:00\",\"end\":\"2026-10-18T20:00:00+08:00\"},\"party\":{\"travelers\":2,\"rooms\":1},\"items\":[{\"id\":\"visit\",\"title\":\"演示公园活动\",\"kind\":\"activity\",\"start\":\"2026-10-18T10:00:00+08:00\",\"end\":\"2026-10-18T11:00:00+08:00\",\"opening_hours_required\":false}],\"fixed_commitments_complete\":true,\"required_lodging_nights\":[],\"source_catalog\":{\"demo-reference\":{\"provider\":\"evaluation-supplied-assumption\",\"retrieved_at\":\"2026-10-10T01:00:00Z\"}},\"evidence\":{\"demo-reference\":{\"origin\":\"assumption\",\"kind\":\"other\",\"cost_ids\":[\"admission\"]}},\"costs\":[{\"id\":\"admission\",\"title\":\"演示两人活动参考合计\",\"kind\":\"reference\",\"total\":{\"amount\":\"200.00\",\"currency\":\"CNY\"},\"source_ids\":[\"demo-reference\"],\"tax_basis\":\"unknown\",\"fee_basis\":\"unknown\",\"basis\":{\"travelers\":2,\"calculation\":\"合成参考金额，两位成人合计；无真实报价\"},\"item_ids\":[\"visit\"]},{\"id\":\"meal\",\"title\":\"演示餐饮金额未知\",\"kind\":\"unknown\",\"total\":null}],\"required_cost_ids\":[\"admission\",\"meal\"],\"budget_scope\":\"limited\",\"budget\":{\"amount\":\"1000.00\",\"currency\":\"CNY\"}},\"requirement_assessments\":[],\"claims\":[{\"id\":\"wrong-party\",\"kind\":\"party_size\",\"travelers\":3},{\"id\":\"planned-amount\",\"kind\":\"cost_amount\",\"cost_id\":\"admission\",\"amount\":{\"amount\":\"200.00\",\"currency\":\"CNY\"},\"basis\":\"planned\",\"travelers\":2},{\"id\":\"within-budget\",\"kind\":\"within_budget\",\"budget\":{\"amount\":\"1000.00\",\"currency\":\"CNY\"}}]}"
+        }
+      ],
+      "scripted_replies": [
+        {
+          "kind": "tools",
+          "calls": [
+            {
+              "name": "review_itinerary",
+              "arguments": {
+                "document": {
+                  "title": "合成评测：只读原子结论核对",
+                  "planning_window": {
+                    "start": "2026-10-18T08:00:00+08:00",
+                    "end": "2026-10-18T20:00:00+08:00"
+                  },
+                  "party": {
+                    "travelers": 2,
+                    "rooms": 1
+                  },
+                  "items": [
+                    {
+                      "id": "visit",
+                      "title": "演示公园活动",
+                      "kind": "activity",
+                      "start": "2026-10-18T10:00:00+08:00",
+                      "end": "2026-10-18T11:00:00+08:00",
+                      "opening_hours_required": false
+                    }
+                  ],
+                  "fixed_commitments_complete": true,
+                  "required_lodging_nights": [],
+                  "source_catalog": {
+                    "demo-reference": {
+                      "provider": "evaluation-supplied-assumption",
+                      "retrieved_at": "2026-10-10T01:00:00Z"
+                    }
+                  },
+                  "evidence": {
+                    "demo-reference": {
+                      "origin": "assumption",
+                      "kind": "other",
+                      "cost_ids": [
+                        "admission"
+                      ]
+                    }
+                  },
+                  "costs": [
+                    {
+                      "id": "admission",
+                      "title": "演示两人活动参考合计",
+                      "kind": "reference",
+                      "total": {
+                        "amount": "200.00",
+                        "currency": "CNY"
+                      },
+                      "source_ids": [
+                        "demo-reference"
+                      ],
+                      "tax_basis": "unknown",
+                      "fee_basis": "unknown",
+                      "basis": {
+                        "travelers": 2,
+                        "calculation": "合成参考金额，两位成人合计；无真实报价"
+                      },
+                      "item_ids": [
+                        "visit"
+                      ]
+                    },
+                    {
+                      "id": "meal",
+                      "title": "演示餐饮金额未知",
+                      "kind": "unknown",
+                      "total": null
+                    }
+                  ],
+                  "required_cost_ids": [
+                    "admission",
+                    "meal"
+                  ],
+                  "budget_scope": "limited",
+                  "budget": {
+                    "amount": "1000.00",
+                    "currency": "CNY"
+                  }
+                },
+                "requirement_assessments": [],
+                "claims": [
+                  {
+                    "id": "wrong-party",
+                    "kind": "party_size",
+                    "travelers": 3
+                  },
+                  {
+                    "id": "planned-amount",
+                    "kind": "cost_amount",
+                    "cost_id": "admission",
+                    "amount": {
+                      "amount": "200.00",
+                      "currency": "CNY"
+                    },
+                    "basis": "planned",
+                    "travelers": 2
+                  },
+                  {
+                    "id": "within-budget",
+                    "kind": "within_budget",
+                    "budget": {
+                      "amount": "1000.00",
+                      "currency": "CNY"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "kind": "final",
+          "content": "合成只读核对：人数结论与文档冲突；planned金额与记录相等，但仅证明结构化一致；费用有参考金额、未知餐饮及税费缺失，因此预算内结论未知。未查询外部来源，也未发布行程。"
+        }
+      ],
+      "assertions": [
+        {
+          "id": "wrong-party-status",
+          "metric": "constraint_preservation",
+          "pointer": "/tool_results/review_itinerary/latest_by_id/claims/wrong-party/status",
+          "operator": "equals",
+          "expected": "fail",
+          "oracle_scope": "structured_requirement",
+          "note": "人数3与给定行程人数2冲突。"
+        },
+        {
+          "id": "planned-amount-status",
+          "metric": "evidence_support",
+          "pointer": "/tool_results/review_itinerary/latest_by_id/claims/planned-amount/status",
+          "operator": "equals",
+          "expected": "pass",
+          "oracle_scope": "structured_requirement",
+          "note": "planned只证明参考费用金额与canonical结构化记录相等，不证明上游真实报价或候选身份。"
+        },
+        {
+          "id": "within-budget-status",
+          "metric": "evidence_support",
+          "pointer": "/tool_results/review_itinerary/latest_by_id/claims/within-budget/status",
+          "operator": "equals",
+          "expected": "unknown",
+          "oracle_scope": "structured_requirement",
+          "note": "参考费用、未知餐饮与缺失税费不能证明总预算内。"
+        },
+        {
+          "id": "review-is-read-only",
+          "metric": "task_completion",
+          "pointer": "/tool_results/review_itinerary/latest/data/state",
+          "operator": "equals",
+          "expected": "read_only",
+          "note": "检查只读工具结果，不要求保存行程或固定调用顺序。"
+        },
+        {
+          "id": "no-plan-published",
+          "metric": "task_completion",
+          "pointer": "/conversation/itinerary",
+          "operator": "equals",
+          "expected": null,
+          "note": "合成只读核对不发布行程版本。"
+        },
+        {
+          "id": "arbitrary-prose-not-proven",
+          "metric": "evidence_support",
+          "operator": "unknown",
+          "note": "最终自然语言的一般语义支持没有oracle；不通过关键词评估。"
+        }
+      ]
+    },
+    {
+      "id": "common_basis_candidate_comparison",
+      "description": "给定两份结构化演示候选，在共同人数、费用范围和时间窗下做Pareto比较；仅检查给定数据的数学结论，不声称现实报价核实或市场最优。",
+      "tags": [
+        "candidate_comparison",
+        "multi_objective",
+        "limited_evidence"
+      ],
+      "turns": [
+        {
+          "content": "请使用候选比较工具，比较下面这两份给定方案的费用、转场和活动时长，保留提供的候选ID。共同口径是两人、仅这次活动费，总预算300元，不涉及交通住宿，两个活动时长相同。不查外部来源。这是评测演示数据，数据里query_quote只表示传入契约状态，不代表真实供应商报价已核验；结论只限这两个候选。数据：{\"basis\":{\"planning_window\":{\"start\":\"2026-10-18T08:00:00+08:00\",\"end\":\"2026-10-18T20:00:00+08:00\"},\"travelers\":2,\"budget_scope\":\"limited\",\"budget\":{\"amount\":\"300.00\",\"currency\":\"CNY\"},\"required_cost_ids\":[\"admission\"],\"required_lodging_nights\":[],\"fixed_commitments_complete\":true},\"options\":[{\"id\":\"cheap\",\"label\":\"候选甲\",\"itinerary\":{\"planning_window\":{\"start\":\"2026-10-18T08:00:00+08:00\",\"end\":\"2026-10-18T20:00:00+08:00\"},\"items\":[{\"id\":\"visit\",\"title\":\"公园活动候选\",\"kind\":\"activity\",\"start\":\"2026-10-18T09:00:00+08:00\",\"end\":\"2026-10-18T10:00:00+08:00\",\"start_place_id\":\"park\",\"end_place_id\":\"park\",\"opening_hours_required\":false}],\"fixed_commitments_complete\":true,\"required_lodging_nights\":[],\"required_cost_ids\":[\"admission\"],\"costs\":[{\"id\":\"admission\",\"title\":\"两人活动费用\",\"kind\":\"query_quote\",\"total\":{\"amount\":\"100.10\",\"currency\":\"CNY\"},\"tax_basis\":\"included\",\"fee_basis\":\"included\",\"sources\":[{\"provider\":\"evaluation-supplied-fixture\",\"retrieved_at\":\"2026-10-10T01:00:00Z\"}],\"basis\":{\"travelers\":2,\"calculation\":\"两位成人合计\"}}],\"budget_scope\":\"limited\",\"budget\":{\"amount\":\"300.00\",\"currency\":\"CNY\"}}},{\"id\":\"expensive\",\"label\":\"候选乙\",\"itinerary\":{\"planning_window\":{\"start\":\"2026-10-18T08:00:00+08:00\",\"end\":\"2026-10-18T20:00:00+08:00\"},\"items\":[{\"id\":\"visit\",\"title\":\"公园活动候选\",\"kind\":\"activity\",\"start\":\"2026-10-18T09:00:00+08:00\",\"end\":\"2026-10-18T10:00:00+08:00\",\"start_place_id\":\"park\",\"end_place_id\":\"park\",\"opening_hours_required\":false}],\"fixed_commitments_complete\":true,\"required_lodging_nights\":[],\"required_cost_ids\":[\"admission\"],\"costs\":[{\"id\":\"admission\",\"title\":\"两人活动费用\",\"kind\":\"query_quote\",\"total\":{\"amount\":\"200.20\",\"currency\":\"CNY\"},\"tax_basis\":\"included\",\"fee_basis\":\"included\",\"sources\":[{\"provider\":\"evaluation-supplied-fixture\",\"retrieved_at\":\"2026-10-10T01:00:00Z\"}],\"basis\":{\"travelers\":2,\"calculation\":\"两位成人合计\"}}],\"budget_scope\":\"limited\",\"budget\":{\"amount\":\"300.00\",\"currency\":\"CNY\"}}}]}"
+        }
+      ],
+      "scripted_replies": [
+        {
+          "kind": "tools",
+          "calls": [
+            {
+              "name": "compare_itinerary_options",
+              "arguments": {
+                "basis": {
+                  "planning_window": {
+                    "start": "2026-10-18T08:00:00+08:00",
+                    "end": "2026-10-18T20:00:00+08:00"
+                  },
+                  "travelers": 2,
+                  "budget_scope": "limited",
+                  "budget": {
+                    "amount": "300.00",
+                    "currency": "CNY"
+                  },
+                  "required_cost_ids": [
+                    "admission"
+                  ],
+                  "required_lodging_nights": [],
+                  "fixed_commitments_complete": true
+                },
+                "options": [
+                  {
+                    "id": "cheap",
+                    "label": "候选甲",
+                    "itinerary": {
+                      "planning_window": {
+                        "start": "2026-10-18T08:00:00+08:00",
+                        "end": "2026-10-18T20:00:00+08:00"
+                      },
+                      "items": [
+                        {
+                          "id": "visit",
+                          "title": "公园活动候选",
+                          "kind": "activity",
+                          "start": "2026-10-18T09:00:00+08:00",
+                          "end": "2026-10-18T10:00:00+08:00",
+                          "start_place_id": "park",
+                          "end_place_id": "park",
+                          "opening_hours_required": false
+                        }
+                      ],
+                      "fixed_commitments_complete": true,
+                      "required_lodging_nights": [],
+                      "required_cost_ids": [
+                        "admission"
+                      ],
+                      "costs": [
+                        {
+                          "id": "admission",
+                          "title": "两人活动费用",
+                          "kind": "query_quote",
+                          "total": {
+                            "amount": "100.10",
+                            "currency": "CNY"
+                          },
+                          "tax_basis": "included",
+                          "fee_basis": "included",
+                          "sources": [
+                            {
+                              "provider": "evaluation-supplied-fixture",
+                              "retrieved_at": "2026-10-10T01:00:00Z"
+                            }
+                          ],
+                          "basis": {
+                            "travelers": 2,
+                            "calculation": "两位成人合计"
+                          }
+                        }
+                      ],
+                      "budget_scope": "limited",
+                      "budget": {
+                        "amount": "300.00",
+                        "currency": "CNY"
+                      }
+                    }
+                  },
+                  {
+                    "id": "expensive",
+                    "label": "候选乙",
+                    "itinerary": {
+                      "planning_window": {
+                        "start": "2026-10-18T08:00:00+08:00",
+                        "end": "2026-10-18T20:00:00+08:00"
+                      },
+                      "items": [
+                        {
+                          "id": "visit",
+                          "title": "公园活动候选",
+                          "kind": "activity",
+                          "start": "2026-10-18T09:00:00+08:00",
+                          "end": "2026-10-18T10:00:00+08:00",
+                          "start_place_id": "park",
+                          "end_place_id": "park",
+                          "opening_hours_required": false
+                        }
+                      ],
+                      "fixed_commitments_complete": true,
+                      "required_lodging_nights": [],
+                      "required_cost_ids": [
+                        "admission"
+                      ],
+                      "costs": [
+                        {
+                          "id": "admission",
+                          "title": "两人活动费用",
+                          "kind": "query_quote",
+                          "total": {
+                            "amount": "200.20",
+                            "currency": "CNY"
+                          },
+                          "tax_basis": "included",
+                          "fee_basis": "included",
+                          "sources": [
+                            {
+                              "provider": "evaluation-supplied-fixture",
+                              "retrieved_at": "2026-10-10T01:00:00Z"
+                            }
+                          ],
+                          "basis": {
+                            "travelers": 2,
+                            "calculation": "两位成人合计"
+                          }
+                        }
+                      ],
+                      "budget_scope": "limited",
+                      "budget": {
+                        "amount": "300.00",
+                        "currency": "CNY"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "kind": "final",
+          "content": "在给定演示数据的共同口径下，候选甲费用100.10元，候选乙200.20元，活动时长和转场相同，候选甲支配乙。这只比较传入的两项数据，不代表已核实真实报价、库存或全市场最优。"
+        }
+      ],
+      "assertions": [
+        {
+          "id": "pareto_known_candidates",
+          "metric": "task_completion",
+          "pointer": "/tool_results/compare_itinerary_options/latest/data/pareto_option_ids",
+          "operator": "equals",
+          "expected": [
+            "cheap"
+          ],
+          "oracle_scope": "structured_requirement",
+          "note": "给定两份同口径候选的确定性Pareto结论。未规定其他工具调用顺序或模型请求数。"
+        },
+        {
+          "id": "price_scope_preserved",
+          "metric": "constraint_preservation",
+          "pointer": "/tool_results/compare_itinerary_options/latest/data/options/0/metrics/exact_total_cost/amount",
+          "operator": "equals",
+          "expected": "100.10",
+          "oracle_scope": "structured_requirement",
+          "note": "输入金额为两人合计，保留Decimal数值与口径。"
+        },
+        {
+          "id": "declared_source_preserved",
+          "metric": "evidence_support",
+          "pointer": "/tool_results/compare_itinerary_options/latest/data/sources/0/provider",
+          "operator": "equals",
+          "expected": "evaluation-supplied-fixture",
+          "oracle_scope": "structured_requirement",
+          "note": "必须保留演示来源，不能改写为真实官网来源。"
+        },
+        {
+          "id": "final_scope_language",
+          "metric": "evidence_support",
+          "operator": "unknown",
+          "note": "最终自然语言是否把传入候选扩张为真实市场最优需独立语义复核。"
+        },
+        {
+          "id": "clarification_quality",
+          "metric": "clarification_relevance",
+          "operator": "unknown",
+          "note": "是否追问与问题相关性不按固定次数评分。"
+        }
+      ]
+    },
+    {
+      "id": "unknown_destination_partial_answers",
+      "description": "目的地未知；用户分次补充出发地和日期，仅授权目的地选择。追问语义不靠关键词评分。",
+      "tags": [
+        "unknown_destination",
+        "partial_answers",
+        "authorization_scope"
+      ],
+      "turns": [
+        {
+          "content": "我想周末出去玩，但不知道去哪。两个人，不坐飞机。预算和时间暂时还没想好。"
+        },
+        {
+          "content": "从上海出发，两个人。预算我还没确定。",
+          "when": "waiting_user"
+        },
+        {
+          "content": "10月17日至18日，总预算两千元含交通住宿；目的地你决定，其他限制保持。",
+          "when": "waiting_user"
+        }
+      ],
+      "scripted_replies": [
+        {
+          "kind": "ask",
+          "content": "你们从哪里出发？周末具体日期、可用时长，以及两人的总预算和费用范围能确定吗？"
+        },
+        {
+          "kind": "ask",
+          "content": "已知上海出发、两人且不坐飞机。日期和两人总预算还未确定，可以补充或授权我在你接受的范围内给选项。"
+        },
+        {
+          "kind": "final",
+          "content": "先按两千元总预算探索上海周边铁路可达目的地；没有实时车票和住宿证据，暂不宣称总费用已核实。"
+        }
+      ],
+      "assertions": [
+        {
+          "id": "runtime_completed",
+          "metric": "task_completion",
+          "operator": "equals",
+          "pointer": "/conversation/status",
+          "expected": "completed",
+          "note": "仅验证本轮完成，不能据此认定目的地推荐质量。"
+        },
+        {
+          "id": "original_request_kept",
+          "metric": "constraint_preservation",
+          "operator": "equals",
+          "pointer": "/conversation/transcript/0/content",
+          "expected": "我想周末出去玩，但不知道去哪。两个人，不坐飞机。预算和时间暂时还没想好。",
+          "note": "完整保留原始用户约束，未摘要。"
+        },
+        {
+          "id": "recommendation_quality",
+          "metric": "task_completion",
+          "operator": "unknown",
+          "note": "尚未定义目的地探索推荐的可计算最优性标准。"
+        },
+        {
+          "id": "questions_relevance",
+          "metric": "clarification_relevance",
+          "operator": "unknown",
+          "note": "自然语言问题是否相关、不重复和授权范围正确，需要人工或独立语义标注，不能按问次数评分。"
+        },
+        {
+          "id": "final_grounding",
+          "metric": "evidence_support",
+          "operator": "unknown",
+          "note": "未结构化最终自然语言结论，不用关键词匹配证明证据支持。"
+        }
+      ]
+    },
+    {
+      "id": "locked_local_edit_unknown_cost",
+      "description": "用户已订固定项；仅授权第二天下午活动选择，局部patch保持预算、不坐飞机和已订项；未给出的报价保持unknown。",
+      "tags": [
+        "locked",
+        "local_edit",
+        "authorization_scope",
+        "missing_quote",
+        "draft_review",
+        "grounding"
+      ],
+      "turns": [
+        {
+          "content": "请安排10月12日至13日南京两天游，不坐飞机，两人总预算2000元。酒店A已经订好不能改，返程G123已经订好不能改。"
+        },
+        {
+          "content": "只把第二天下午改成室内活动，这个活动你决定，其他不变。"
+        }
+      ],
+      "scripted_replies": [
+        {
+          "kind": "tools",
+          "calls": [
+            {
+              "name": "save_itinerary",
+              "arguments": {
+                "document": {
+                  "title": "南京两天方案",
+                  "planning_window": {
+                    "start": "2026-10-12T08:00:00+08:00",
+                    "end": "2026-10-13T22:00:00+08:00"
+                  },
+                  "party": {
+                    "travelers": 2,
+                    "rooms": 1
+                  },
+                  "items": [
+                    {
+                      "id": "day1",
+                      "title": "第一天公园散步",
+                      "start": "2026-10-12T10:00:00+08:00",
+                      "end": "2026-10-12T11:00:00+08:00",
+                      "opening_hours_required": false
+                    },
+                    {
+                      "id": "day2",
+                      "title": "第二天下午户外散步",
+                      "start": "2026-10-13T14:00:00+08:00",
+                      "end": "2026-10-13T16:00:00+08:00",
+                      "opening_hours_required": false
+                    },
+                    {
+                      "id": "return",
+                      "title": "用户已订返程G123",
+                      "kind": "transport",
+                      "start": "2026-10-13T19:00:00+08:00",
+                      "end": "2026-10-13T21:00:00+08:00",
+                      "opening_hours_required": false,
+                      "protection": {
+                        "state": "user_reported_booked",
+                        "user_reference": {
+                          "message_id": {
+                            "$runtime": "/planning/user_message_references/0/message_id"
+                          },
+                          "quote": "返程G123已经订好不能改"
+                        }
+                      }
+                    }
+                  ],
+                  "lodging": [
+                    {
+                      "id": "hotel",
+                      "title": "酒店A",
+                      "hotel_id": "hotel-A",
+                      "check_in": "2026-10-12",
+                      "check_out": "2026-10-13",
+                      "protection": {
+                        "state": "user_reported_booked",
+                        "user_reference": {
+                          "message_id": {
+                            "$runtime": "/planning/user_message_references/0/message_id"
+                          },
+                          "quote": "酒店A已经订好不能改"
+                        }
+                      }
+                    }
+                  ],
+                  "requirements": [
+                    {
+                      "id": "budget",
+                      "statement": "两人总预算2000元",
+                      "origin": "user",
+                      "user_reference": {
+                        "message_id": {
+                          "$runtime": "/planning/user_message_references/0/message_id"
+                        },
+                        "quote": "两人总预算2000元"
+                      }
+                    },
+                    {
+                      "id": "no-flight",
+                      "statement": "不坐飞机",
+                      "origin": "user",
+                      "user_reference": {
+                        "message_id": {
+                          "$runtime": "/planning/user_message_references/0/message_id"
+                        },
+                        "quote": "不坐飞机"
+                      }
+                    }
+                  ],
+                  "costs": [
+                    {
+                      "id": "hotel-cost",
+                      "title": "已订酒店金额未提供",
+                      "kind": "unknown",
+                      "total": null,
+                      "lodging_ids": [
+                        "hotel"
+                      ]
+                    },
+                    {
+                      "id": "train-cost",
+                      "title": "已订返程金额未提供",
+                      "kind": "unknown",
+                      "total": null,
+                      "item_ids": [
+                        "return"
+                      ]
+                    }
+                  ],
+                  "required_cost_ids": [
+                    "hotel-cost",
+                    "train-cost"
+                  ],
+                  "required_lodging_nights": [
+                    {
+                      "night": "2026-10-12"
+                    }
+                  ],
+                  "budget": {
+                    "amount": "2000",
+                    "currency": "CNY"
+                  },
+                  "budget_scope": "limited"
+                },
+                "change_reason": "保存用户已订安排，未知费用保持null"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "tools",
+          "calls": [
+            {
+              "name": "review_itinerary",
+              "arguments": {
+                "base_version_id": {
+                  "$runtime": "/planning/pending_itinerary/id"
+                },
+                "requirement_assessments": [
+                  {
+                    "requirement_id": "budget",
+                    "assessment": "unknown",
+                    "explanation": "已订住宿和车票金额未知，不能证明两人总预算满足。",
+                    "cost_ids": [
+                      "hotel-cost",
+                      "train-cost"
+                    ]
+                  },
+                  {
+                    "requirement_id": "no-flight",
+                    "assessment": "satisfied",
+                    "explanation": "方案里的返程为用户自报铁路安排，仍需语义核对完整行程。",
+                    "item_ids": [
+                      "return"
+                    ]
+                  }
+                ],
+                "claims": [
+                  {
+                    "id": "party",
+                    "kind": "party_size",
+                    "travelers": 2,
+                    "rooms": 1
+                  },
+                  {
+                    "id": "budget-claim",
+                    "kind": "within_budget",
+                    "budget": {
+                      "amount": "2000",
+                      "currency": "CNY"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "kind": "final",
+          "content": "酒店和G123按你自报已订保留；金额未提供，总预算仍待核实。"
+        },
+        {
+          "kind": "tools",
+          "calls": [
+            {
+              "name": "save_itinerary",
+              "arguments": {
+                "base_version_id": {
+                  "$runtime": "/planning/current_itinerary/id"
+                },
+                "patch": {
+                  "items": [
+                    {
+                      "id": "day2",
+                      "title": "第二天下午室内活动待核实",
+                      "opening_hours_required": true
+                    }
+                  ]
+                },
+                "change_reason": "仅修改用户授权的第二天下午活动"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "final",
+          "content": "仅把第二天下午调整为室内活动候选；开放时间、费用和转场仍待核实，酒店与返程保留。"
+        }
+      ],
+      "assertions": [
+        {
+          "id": "two_published_versions",
+          "metric": "task_completion",
+          "operator": "equals",
+          "pointer": "/conversation/itinerary/revision",
+          "expected": 2,
+          "note": "成功交付后发布新版本，草案不是已发布方案。"
+        },
+        {
+          "id": "locked_hotel_preserved",
+          "metric": "constraint_preservation",
+          "operator": "same_as",
+          "pointer": "/conversation/itinerary/document/lodging",
+          "other_pointer": "/turns/0/public/itinerary/document/lodging",
+          "note": "局部活动选择不扩大到住宿授权。",
+          "oracle_scope": "structured_requirement"
+        },
+        {
+          "id": "locked_return_preserved",
+          "metric": "constraint_preservation",
+          "operator": "same_as",
+          "pointer": "/conversation/itinerary/document/items/2",
+          "other_pointer": "/turns/0/public/itinerary/document/items/2",
+          "note": "锁定的返程及原话依据保持不变。",
+          "oracle_scope": "structured_requirement"
+        },
+        {
+          "id": "unrelated_item_preserved",
+          "metric": "constraint_preservation",
+          "operator": "same_as",
+          "pointer": "/conversation/itinerary/document/items/0",
+          "other_pointer": "/turns/0/public/itinerary/document/items/0",
+          "note": "未涉及第一天活动保持不变。",
+          "oracle_scope": "structured_requirement"
+        },
+        {
+          "id": "requirements_preserved",
+          "metric": "constraint_preservation",
+          "operator": "same_as",
+          "pointer": "/conversation/itinerary/document/requirements",
+          "other_pointer": "/turns/0/public/itinerary/document/requirements",
+          "note": "活动局部授权不覆盖预算与不坐飞机的原条件。",
+          "oracle_scope": "structured_requirement"
+        },
+        {
+          "id": "quote_remains_unknown",
+          "metric": "evidence_support",
+          "operator": "equals",
+          "pointer": "/conversation/itinerary/document/costs/0/total",
+          "expected": null,
+          "note": "金额缺失保留null，不能按零计算。",
+          "oracle_scope": "structured_requirement"
+        },
+        {
+          "id": "unknown_cost_reported",
+          "metric": "evidence_support",
+          "operator": "collection_contains",
+          "pointer": "/conversation/itinerary/review/unknown_cost_ids",
+          "expected": "hotel-cost",
+          "note": "行程校验保留必要费用未知。",
+          "oracle_scope": "structured_requirement"
+        },
+        {
+          "id": "prose_consistency",
+          "metric": "evidence_support",
+          "operator": "unknown",
+          "note": "最终答复是否逐条吻合结构化版本仍无语义oracle。"
+        },
+        {
+          "id": "clarification_choice",
+          "metric": "clarification_relevance",
+          "operator": "unknown",
+          "note": "是否需要额外追问由模型自主判断，不按脚本问题次数评分。"
+        },
+        {
+          "id": "review_is_read_only",
+          "metric": "task_completion",
+          "pointer": "/tool_results/review_itinerary/latest/data/state",
+          "operator": "equals",
+          "expected": "read_only",
+          "note": "草案复核不写新版本，不要求固定调用顺序。"
+        },
+        {
+          "id": "semantic_satisfaction_not_proven",
+          "metric": "constraint_preservation",
+          "pointer": "/tool_results/review_itinerary/latest/data/requirements/1/status",
+          "operator": "equals",
+          "expected": "unknown",
+          "oracle_scope": "structured_requirement",
+          "note": "模型声称满足也不能变成确定性语义证明。"
+        },
+        {
+          "id": "budget_claim_unknown",
+          "metric": "evidence_support",
+          "pointer": "/tool_results/review_itinerary/latest/data/claims/1/status",
+          "operator": "equals",
+          "expected": "unknown",
+          "oracle_scope": "structured_requirement",
+          "note": "缺报价的预算结论必须保留unknown。"
+        }
+      ]
+    },
+    {
+      "id": "source_blocked_is_not_no_availability",
+      "description": "开放公告来源受阻；错误必须保留为错误，不变成当天开放或无票证据。",
+      "tags": [
+        "source_failure",
+        "evidence_boundary"
+      ],
+      "turns": [
+        {
+          "content": "查南京博物院2026年10月12日开放公告，查不到就说明未知，别直接说当天开放。"
+        }
+      ],
+      "provider_replays": [
+        {
+          "tool_name": "search_web",
+          "arguments": {
+            "query": "南京博物院 2026年10月12日 开放公告",
+            "count": 3
+          },
+          "error_code": "provider_blocked",
+          "error_message": "Recorded public source was blocked; no opening evidence was obtained."
+        }
+      ],
+      "scripted_replies": [
+        {
+          "kind": "tools",
+          "calls": [
+            {
+              "name": "search_web",
+              "arguments": {
+                "query": "南京博物院 2026年10月12日 开放公告",
+                "count": 3
+              }
+            }
+          ]
+        },
+        {
+          "kind": "final",
+          "content": "公告查询来源受阻，没有取得当天开放证据，因此开放状态保持未知。"
+        }
+      ],
+      "assertions": [
+        {
+          "id": "source_error_preserved",
+          "metric": "evidence_support",
+          "operator": "equals",
+          "pointer": "/tool_results/search_web/latest/status",
+          "expected": "error",
+          "note": "工具访问失败不能缓存或改成业务空结果。"
+        },
+        {
+          "id": "source_error_code",
+          "metric": "evidence_support",
+          "operator": "equals",
+          "pointer": "/tool_results/search_web/latest/error/code",
+          "expected": "provider_blocked",
+          "note": "受阻保留明确错误类型。"
+        },
+        {
+          "id": "runtime_completed",
+          "metric": "task_completion",
+          "operator": "equals",
+          "pointer": "/conversation/status",
+          "expected": "completed",
+          "note": "未知事实也可以正常交付；完成状态不是事实已证实。"
+        },
+        {
+          "id": "opening_claim_grounded",
+          "metric": "evidence_support",
+          "operator": "unknown",
+          "note": "是否把受阻扩大为闭馆/开放结论需要语义检查，保留unknown。"
+        },
+        {
+          "id": "question_relevance",
+          "metric": "clarification_relevance",
+          "operator": "unknown",
+          "note": "本场景没有问题相关性的机器oracle。"
+        },
+        {
+          "id": "request_coverage",
+          "metric": "constraint_preservation",
+          "operator": "unknown",
+          "note": "完整自然语言约束覆盖尚无可计算oracle。"
+        }
+      ]
+    }
+  ]
+}

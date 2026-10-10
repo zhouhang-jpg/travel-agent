@@ -18,6 +18,7 @@ const TOOL_LABELS: Record<string, string> = {
   fetch_webpage: '阅读来源资料', search_flights: '查询航班', search_trains: '查询火车',
   search_coaches: '查询大巴', search_hotels: '查询住宿', validate_itinerary: '检查行程安排',
   save_itinerary: '保存行程修改',
+  compare_itinerary_options: '比较候选方案', review_itinerary: '核对需求与方案结论',
 };
 const EXAMPLES = [
   { mark: '01', title: '去一座喜欢的城市', text: '从上海出发，去成都玩 4 天，想吃当地美食、看看街巷，节奏轻松一点。' },

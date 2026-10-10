@@ -29,6 +29,10 @@
   公开事件支持重放；服务重启复用已提交效果并保留累计运行预算。
 - **证据与一致性校验**：检查时间、转场及缓冲、开放窗口、固定安排、住宿和费用。
   草案仅在本轮成功交付时发布；未知费用不按零计，旧报价或条件不符时标记待复核。
+- **共同口径候选比较**：对提供的完整候选计算费用、交通与活动时间及 Pareto 取舍，
+  费用或必要缓冲未知的方案保留待复核；有限候选比较不代表全市场最优。
+- **需求与结论复核**：LangGraph 会话内可只读核对需求关联、真实用户原话及金额/人数/时间
+  等原子结论；模型声称满足仍是语义未知，报价金额匹配不证明班次、酒店或房型身份绑定。
 
 恢复已通过 SQLite 与真实 PostgreSQL 的进程退出/重启、幂等、检查点围栏和可逆迁移验证；
 真实 DeepSeek 样例也完成了生成方案、锁定安排、局部修改与版本交付。
@@ -209,8 +213,10 @@ Alembic 管理；降级不能假定旧运行器能够恢复新图线程。
 - 来源对应与校验只检查提供数据的一致性，不能保证全部需求已覆盖、未来可售库存、
   预订真实或行程安全。用户自报、估计、部分结果和未知保留各自语义。
 - 供应商并行与结果复用已实现，默认总工具并发 4、浏览器并发 2，来源另有限流；详见
-  [查询运行与验收](docs/query-runtime.md)。完整方案比较、地图/时间轴/导出及主动提醒**仍待实施**，
-  详见[后续迭代计划](docs/next-iteration.md)。
+  [查询运行与验收](docs/query-runtime.md)。有限完整候选的共同口径比较及只读复核已接入，
+  由模型自主选择调用；未接入 OR-Tools，输入声明不等于认证事实。边界见
+  [Agent 比较、复核与评测](docs/agent-quality.md)。地图/时间轴/导出及主动提醒仍待实施，
+  后续安排见[技术路线](docs/technical-roadmap.md)。
 
 ## 开发验证
 
@@ -221,6 +227,7 @@ uv run pytest -q
 uv run ruff check .
 uv run ruff format --check .
 uv run python scripts/check_examples.py
+uv run python scripts/evaluate_agent.py
 pnpm --dir frontend test
 pnpm --dir frontend build
 ```
@@ -228,6 +235,22 @@ pnpm --dir frontend build
 真实 PostgreSQL 验收需要显式配置 `TRAVEL_TEST_POSTGRES_URL`，指向可创建/删除临时数据库
 的独立测试服务器；未配置时相关用例明确跳过，SQLite 通过不替代 PostgreSQL 验收。
 不要把该测试变量指向生产数据库。
+
+统一的中文多轮评测通过正式 LangGraph 会话 HTTP/SSE 接口执行，每个用例使用隔离临时库，
+不修改用户数据库。默认 `scripts/evaluate_agent.py` 仅回放模型/供应商并检查运行契约，
+不消耗模型额度，不能用脚本回复证明 LLM 能力。报告记录版本、真实轨迹、usage/未知、
+耗时和终态；自然语言结论或追问没有机器可判定依据时保持 `unknown`，不按工具顺序、
+问次数或关键词评分，也不把 `completed` 算成任务语义通过。
+
+以下入口显式使用配置中的真实模型，但只比较给定的合成演示候选，外部供应商仍回放/禁用：
+
+```sh
+uv run python scripts/evaluate_agent.py --live --case common_basis_candidate_comparison --output private/evaluations/comparison-live.json
+```
+
+同时传入 `--live --live-providers` 才启用实际供应商。真实模型或来源会消耗额度；演示候选
+验证不代表实际旅行验收或 Agent 质量分。评测报告默认在 Git 忽略的 `private/evaluations/`，
+含私有输入和工具参数，不应公开上传。用例格式和依据见[评测说明](docs/agent-quality.md)。
 
 真实联调需显式执行，**会消耗已配置模型/供应商额度**。这些是验收样例，不是业务流程：
 
@@ -253,6 +276,7 @@ uv run python scripts/live_probe_flight_sources.py --live
 | --- | --- |
 | 架构与恢复 | [技术路线](docs/technical-roadmap.md)、[ADR-0001](docs/adr/0001-durable-react-runtime.md)、[持久运行](docs/durable-runtime.md) |
 | Agent 与模型 | [行为及完整上下文](docs/agent-behavior.md)、[DeepSeek 接口](docs/providers/deepseek.md) |
+| 候选比较、需求复核与评测 | [共同口径、证据边界及统一 LangGraph HTTP/SSE 入口](docs/agent-quality.md) |
 | 模型上下文缓存 | [追加状态、恢复、只读诊断及真实对照](docs/context-cache.md) |
 | 行程与版本 | [版本、局部修改与验收](docs/itinerary-versions.md)、[校验规则](docs/itinerary.md) |
 | 工具与报价 | [工具层](docs/tool-layer.md)、[报价合同](docs/quotes.md)、[开放时间](docs/opening-hours.md) |

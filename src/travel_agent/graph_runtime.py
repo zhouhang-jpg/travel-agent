@@ -23,7 +23,9 @@ from travel_agent.itineraries import ItineraryService, PlanConflict
 from travel_agent.itinerary_schema import SAVE_ITINERARY_TOOL
 from travel_agent.model_progress import model_phase
 from travel_agent.models import ModelError
+from travel_agent.plan_grounding import REVIEW_ITINERARY_TOOL
 from travel_agent.prompts import ASK_USER_TOOL
+from travel_agent.quality_tools import bind_comparison_protections, review_for_conversation
 from travel_agent.runner import MODEL_FAILURE_MESSAGES, AgentRunner, _tool_result
 from travel_agent.runtime_context import CONTEXT_VERSION, build_policy_message
 from travel_agent.tool_arguments import ArgumentJSONError, parse_arguments
@@ -78,6 +80,7 @@ class GraphRuntime:
             "tools": [
                 deepcopy(ASK_USER_TOOL),
                 deepcopy(SAVE_ITINERARY_TOOL),
+                deepcopy(REVIEW_ITINERARY_TOOL),
                 *registry.model_definitions(),
             ],
             "catalog": [
@@ -87,6 +90,12 @@ class GraphRuntime:
                     "availability": "ready",
                     "reason": None,
                     "scope": "current_conversation",
+                },
+                {
+                    "name": "review_itinerary",
+                    "availability": "ready",
+                    "reason": None,
+                    "scope": "current_conversation_read_only",
                 },
             ],
             "model": {
@@ -233,7 +242,7 @@ class GraphRuntime:
             if payload is None:
                 await progress("queued")
                 itinerary = None
-                if mixed or name in {"ask_user", "save_itinerary"}:
+                if mixed or name in {"ask_user", "save_itinerary", "review_itinerary"}:
                     await progress("running")
                 if mixed:
                     raw = _tool_result(
@@ -241,29 +250,46 @@ class GraphRuntime:
                         code="ask_user_must_be_alone",
                         message="ask_user 必须单独调用；本组均未执行，请重新调用。",
                     )
-                elif name == "save_itinerary":
+                elif name in {"save_itinerary", "review_itinerary", "compare_itinerary_options"}:
                     arguments = None
                     try:
                         arguments = parse_arguments(call["function"]["arguments"], call["id"])
-                        itinerary = await self.itineraries.prepare(lease, key, arguments)
-                        raw = _tool_result(
-                            call,
-                            data={
-                                "version_id": itinerary["id"],
-                                "state": "draft_until_successful_delivery",
-                                "review": itinerary["review"],
-                                "diff": itinerary["diff"],
-                                "cost_treatment": [
-                                    {
-                                        "id": c["id"],
-                                        "kind": c["kind"],
-                                        "tax_basis": c["tax_basis"],
-                                        "fee_basis": c["fee_basis"],
-                                    }
-                                    for c in itinerary["document"]["costs"]
-                                ],
-                            },
-                        )
+                        if name == "compare_itinerary_options":
+                            bound_call = deepcopy(call)
+                            bound_call["function"]["arguments"] = json.dumps(
+                                await bind_comparison_protections(
+                                    self.itineraries, lease["conversation_id"], arguments
+                                ),
+                                ensure_ascii=False,
+                            )
+                            raw = await self.executor._execute(bound_call, progress=progress)
+                        elif name == "review_itinerary":
+                            raw = _tool_result(
+                                call,
+                                data=await review_for_conversation(
+                                    self.itineraries, lease, key, arguments
+                                ),
+                            )
+                        else:
+                            itinerary = await self.itineraries.prepare(lease, key, arguments)
+                            raw = _tool_result(
+                                call,
+                                data={
+                                    "version_id": itinerary["id"],
+                                    "state": "draft_until_successful_delivery",
+                                    "review": itinerary["review"],
+                                    "diff": itinerary["diff"],
+                                    "cost_treatment": [
+                                        {
+                                            "id": c["id"],
+                                            "kind": c["kind"],
+                                            "tax_basis": c["tax_basis"],
+                                            "fee_basis": c["fee_basis"],
+                                        }
+                                        for c in itinerary["document"]["costs"]
+                                    ],
+                                },
+                            )
                     except ArgumentJSONError as exc:
                         details = deepcopy(exc.details)
                         if arguments and arguments.get("argument_edits") is not None:
@@ -272,7 +298,11 @@ class GraphRuntime:
                         raw = _tool_result(
                             call,
                             code="invalid_itinerary_json",
-                            message="保存参数JSON语法错误，请按位置修正；可用retry_from_call_id与argument_edits局部修正原字符串。",
+                            message=(
+                                "保存参数JSON语法错误，请按位置修正；可用retry_from_call_id与argument_edits局部修正原字符串。"
+                                if name == "save_itinerary"
+                                else "工具参数JSON语法错误，请按标明的位置依据工具schema修正。"
+                            ),
                             data={"json_error": details},
                         )
                     except PlanConflict as exc:
@@ -303,7 +333,7 @@ class GraphRuntime:
                         raw = _tool_result(
                             call,
                             code="invalid_itinerary",
-                            message="行程或引用格式不完整，请依据工具schema修正；普通查询无需保存。",
+                            message="行程或引用格式不完整，请依据工具schema修正。",
                         )
                 else:
                     raw = await self.executor._execute(call, progress=progress)

@@ -271,6 +271,19 @@ def available_sources(bank):
 def source_bank(history):
     """Find sources in actual decoded tool data and retain their actual query arguments."""
     bank, calls = {}, {}
+    evidence_tools = {
+        "search_places",
+        "get_place_details",
+        "get_routes",
+        "get_weather",
+        "search_web",
+        "fetch_webpage",
+        "get_attraction_opening_hours",
+        "search_flights",
+        "search_trains",
+        "search_coaches",
+        "search_hotels",
+    }
 
     def prices(value):
         found = []
@@ -307,10 +320,10 @@ def source_bank(history):
         if message.get("role") == "tool":
             try:
                 function = calls.get(message.get("tool_call_id"), {})
-                if function.get("name") in {"save_itinerary", "ask_user", "validate_itinerary"}:
-                    continue  # A model-authored plan is not new supplier evidence.
+                if function.get("name") not in evidence_tools:
+                    continue  # Only reviewed supplier tools introduce observed evidence.
                 result = decode_tool_result(message["content"])
-                if result.get("status") == "ok":
+                if result.get("status") == "ok" and result.get("tool_name") == function["name"]:
                     walk(
                         result.get("data"),
                         {

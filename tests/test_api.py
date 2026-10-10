@@ -39,14 +39,19 @@ async def api_client(*, settings=None, registry=None):
 async def test_unconfigured_catalog_model_export_and_unavailable_call():
     async with api_client() as client:
         catalog = (await client.get("/tools")).json()
-        assert len(catalog) == 12
+        assert len(catalog) == 13
         statuses = {row["name"]: row["availability"] for row in catalog}
         assert statuses["search_flights"] == "not_configured"
         assert statuses["get_weather"] == "not_configured"
         assert {
             item["function"]["name"]
             for item in (await client.get("/tools/model-definitions")).json()
-        } == {"fetch_webpage", "validate_itinerary", "get_attraction_opening_hours"}
+        } == {
+            "fetch_webpage",
+            "validate_itinerary",
+            "get_attraction_opening_hours",
+            "compare_itinerary_options",
+        }
         result = (await client.post("/tools/search_hotels/call", json={"arguments": {}})).json()
         assert result["status"] == "error"
         assert result["error"]["code"] == "tool_unavailable" and result["data"] is None
@@ -156,7 +161,7 @@ async def test_configured_providers_exported_without_network_and_secrets_hidden(
     )
     async with httpx.AsyncClient(transport=httpx.MockTransport(no_network)) as client:
         registry = build_registry(settings, client)
-        assert len(registry.model_definitions()) == 8
+        assert len(registry.model_definitions()) == 9
         assert "secret" not in str(registry.catalog())
         assert "amap-secret" not in repr(settings)
 
