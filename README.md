@@ -1,6 +1,6 @@
 # 多轮自主出行助手
 
-这是 `D:\travel-agent` 的多轮出行助手：React / TypeScript / Vite 前端配合 Python / FastAPI / Pydantic 后端，使用 pnpm、uv、pytest、Ruff。轻量 ReAct 由 LLM 根据当前目标与完整会话历史自主选择提问、查询、规划或调整方案。默认测试模型为 `deepseek-flash`，预留其他模型厂商接口；暂不保存跨会话偏好。
+这是 `D:\travel-agent` 的多轮出行助手：React / TypeScript / Vite 前端配合 Python / FastAPI / Pydantic 后端，使用 pnpm、uv、pytest、Ruff。低层 LangGraph StateGraph 承担持久化 ReAct 执行与恢复，由 LLM 根据当前目标与完整会话历史自主选择提问、查询、规划或调整方案。默认测试模型为 `deepseek-flash`，预留其他模型厂商接口；暂不保存跨会话偏好。
 
 **普通大巴、铁路和机票已完成有限真实样本的后端验证。** 普通大巴使用出行365，铁路优先12306，FlyAI保留为可配置且披露来源的降级或显式候选查询；机票用FlyAI快速候选，并可按需选择东航官网核实含税/税前展示价。网页查询由项目独立浏览器执行，不依赖Codex会话。酒店继续FlyAI；基础地图、天气、搜索和行程校验也已验证。当前票务只验证单成人，酒店限一个房间；列表价和库存快照不承诺可成功购票。机场巴士专线、高铁接驳专线及拼车/商务车暂缓。
 
@@ -41,7 +41,7 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-Vite 将 `/api` 代理至后端。当前要求 **单 worker、单应用进程**，不支持多进程共享执行租约。默认数据库为 `sqlite+aiosqlite:///private/travel-agent.db`；可配置 `postgresql+asyncpg://...`，PostgreSQL 尚未真实联调。首次本地启动创建缺失表，后续 schema 升级从仓库根目录运行 `uv run alembic upgrade head`。迁移读取本地 Settings，不把凭据写进迁移文件；迁移测试使用独立临时数据库。
+Vite 将 `/api` 代理至后端。当前要求 **单 worker、单应用进程**。默认数据库为 `sqlite+aiosqlite:///private/travel-agent.db`；也支持 `postgresql+asyncpg://...`，已完成独立 PostgreSQL 17 的进程恢复、检查点围栏和可逆迁移验收。首次本地启动创建缺失表；已有数据库须先备份，确认 Alembic 当前版本后运行 `uv run alembic upgrade head`。SDK saver 的 schema 由固定版本的 `setup()` 单独管理；SQLite 检查点在同名 `.graph` 数据库，备份需包含两个库。部署方式与回退边界见[持久运行说明](docs/durable-runtime.md)。
 
 `POST /conversations` 创建会话；`GET /conversations` 及 `GET /conversations/{id}` 恢复公开对话；`POST /conversations/{id}/messages` 接收消息并返回 SSE。执行中同会话的新输入返回 409，关闭 SSE 不取消后台任务。`GET /agent/health` 返回模型配置状态。Agent 导出已配置工具（含普通大巴）并添加 `ask_user`；底层工具目录保留全部契约。
 
@@ -95,7 +95,8 @@ uv run python scripts/live_probe_quotes.py --tool search_trains
 
 ## 设计与验证材料
 
-- [下一阶段技术路线、迁移接缝与验收](docs/technical-roadmap.md)、[ADR-0001：持久化自主ReAct](docs/adr/0001-durable-react-runtime.md)（设计已落盘，运行器尚未切换）
+- [持久运行实现与验收](docs/durable-runtime.md)、[技术路线](docs/technical-roadmap.md)、[ADR-0001：持久化自主ReAct](docs/adr/0001-durable-react-runtime.md)
+- [下一轮：已有行程的可靠局部修改](docs/next-iteration.md)（待实施，与恢复迁移独立验收）
 - [工具层设计与共同契约](docs/tool-layer.md)
 - [景点开放时间证据与日期边界](docs/opening-hours.md)
 - [Agent 行为与完整上下文](docs/agent-behavior.md)、[模型接口与私有字段](docs/providers/deepseek.md)、[前端说明](frontend/README.md)

@@ -1,6 +1,7 @@
 # ADR-0001：以低层 StateGraph 验证持久化自主 ReAct
 
-状态：选定下一阶段验证路线；**默认引擎尚未切换**。
+状态：M1 已实施并完成 SQLite / PostgreSQL 恢复验收；默认新会话使用 LangGraph。
+实现、测试证据与限制见[持久运行说明](../durable-runtime.md)。
 日期：2026-10-10（America/Chicago）。现状基线：`f16de6c`。
 
 ## 背景与决定
@@ -31,10 +32,10 @@ PostgreSQL部署目标单独实测；SQLite成功不替代它。默认12次模�
 
 ## 代价与不选方案
 
-- 增加库和saver依赖，先用隔离库spike固定版本，验证异步驱动、serializer、事务/fencing及预算；本轮不安装。
+- 增加固定版本库和saver依赖；隔离验收后接入应用。采用不可变代际存储与事务保护的canonical checkpoint引用；Windows PostgreSQL saver使用专用Selector I/O循环以兼容Playwright的Proactor主循环。
 - 首阶段单进程，换框架/数据库不代表多实例或多人鉴权完成。
 - 不选择高层预制Agent/消息转换作为迁移前提，以免丢供应商字段或隐含摘要/裁剪。
 - 不选择“先造全套自研checkpoint再接图”，也不选择MCP-first或整套服务拆分。
-- 采用哪种saver围栏实现是spike待验证项，不能用非原子check-then-write替代；验证失败不切默认。
+- 不采用跨连接的非原子check-then-write。旧owner的checkpoint及pending writes只能产生未发布代际，事务围栏阻止其成为canonical图状态。
 
 完整Runtime接缝、标识、迁移批次和验收表见[技术路线](../technical-roadmap.md)。

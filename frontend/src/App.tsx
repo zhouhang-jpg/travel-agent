@@ -71,6 +71,7 @@ export default function App() {
   const [streaming, setStreaming] = useState<Set<string>>(new Set());
   const [progress, setProgress] = useState<Record<string, string>>({});
   const streams = useRef(new Set<string>());
+  const eventCursors = useRef<Record<string, number>>({});
   const sendLock = useRef(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
@@ -83,6 +84,9 @@ export default function App() {
   const error = activeId ? errors[activeId] : '';
 
   const updateSnapshot = useCallback((conversation: Conversation) => {
+    if (conversation.event_seq !== undefined) {
+      eventCursors.current[conversation.id] = Math.max(eventCursors.current[conversation.id] ?? 0, conversation.event_seq);
+    }
     setSnapshots((previous) => ({ ...previous, [conversation.id]: conversation }));
     setItems((previous) => [conversation, ...previous.filter((item) => item.id !== conversation.id)]
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at)));
@@ -162,7 +166,11 @@ export default function App() {
     setItems((previous) => previous.map((item) => item.id === id ? { ...item, status } : item));
   };
 
-  const onEvent = (id: string, event: AgentEvent) => {
+  const onEvent = useCallback((id: string, event: AgentEvent) => {
+    if (event.event_seq !== undefined) {
+      if (event.event_seq <= (eventCursors.current[id] ?? 0)) return;
+      eventCursors.current[id] = event.event_seq;
+    }
     if (event.type === 'status' || event.type === 'done') {
       updateStatus(id, event.status);
       if (event.status === 'running') setProgress((previous) => ({ ...previous, [id]: '正在理解你的需求，安排下一步…' }));
@@ -172,19 +180,34 @@ export default function App() {
       setProgress((previous) => ({ ...previous, [id]: event.status === 'error'
         ? '部分信息暂时无法获取，正在继续安排…' : '正在整理查询结果…' }));
     } else if (event.type === 'message') {
+      if (event.role === 'user') return;
       setSnapshots((previous) => {
         const conversation = previous[id];
         if (!conversation) return previous;
+        if (event.message_id && conversation.transcript.some((message) => message.message_id === event.message_id)) return previous;
         const lastMessage = conversation.transcript.at(-1);
-        if (lastMessage?.role === 'assistant' && lastMessage.content === event.content && lastMessage.kind === event.kind) return previous;
-        return { ...previous, [id]: { ...conversation, transcript: [...conversation.transcript, {
+        if (!event.message_id && lastMessage?.role === 'assistant' && lastMessage.content === event.content && lastMessage.kind === event.kind) return previous;
+        return { ...previous, [id]: { ...conversation,
+          question_id: event.kind === 'question' ? event.question_id : conversation.question_id,
+          transcript: [...conversation.transcript, {
           role: 'assistant', content: event.content, kind: event.kind, created_at: new Date().toISOString(),
+          message_id: event.message_id, question_id: event.question_id,
         }] } };
       });
     } else if (event.type === 'error') {
       setErrors((previous) => ({ ...previous, [id]: event.message || '执行出错，请稍后重试。' }));
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!activeId || active?.status !== 'running' || streaming.has(activeId) || !active.engine) return;
+    const controller = new AbortController();
+    void api.replay(activeId, eventCursors.current[activeId] ?? 0,
+      (event) => onEvent(activeId, event), controller.signal).catch(() => {
+      // The canonical transcript poll above also covers service restarts.
+    });
+    return () => controller.abort();
+  }, [activeId, active?.status, active?.engine, streaming, onEvent]);
 
   const send = async () => {
     const content = draft.trim();
@@ -216,7 +239,7 @@ export default function App() {
       setCreating(false);
       sendLock.current = false;
       try {
-        await api.send(runId, content, (event) => onEvent(runId, event));
+        await api.send(runId, content, (event) => onEvent(runId, event), snapshots[runId]?.question_id);
       } catch (reason) {
         setErrors((previous) => ({ ...previous, [runId]: readableError(reason) }));
         if (reason instanceof APIError) {

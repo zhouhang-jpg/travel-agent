@@ -1,20 +1,22 @@
 # 下一阶段技术路线与验收
 
-日期：2026-10-10（America/Chicago）。实现基线：`f16de6c`。本文是下一阶段设计，
-本次仅新增文档，不安装 LangGraph、不切换执行引擎、不迁移用户数据库。
+日期：2026-10-10（America/Chicago）。迁移前实现基线：`f16de6c`。
+M1 已实施并通过 SQLite / 真实 PostgreSQL 恢复验收，默认新会话已切换 LangGraph；
+具体实现与部署限制见[持久运行说明](durable-runtime.md)。下文保留设计依据与后续门槛；
+M2–M5仍为待实施方向，下一轮范围已细化为[可靠局部修改](next-iteration.md)。
 选型决定见 [ADR-0001](adr/0001-durable-react-runtime.md)。
 
 ## 1. 当前能力与选定方向
 
 | 状态 | 内容 |
 | --- | --- |
-| 当前已实现 | React/TS/Vite、FastAPI/Pydantic、`ChatModel`、`ToolRegistry`、自研 `AgentRunner`；多次 `ask_user`、完整历史、无损工具表示、来源引用、现有行程一致性校验 |
-| 当前部署边界 | 单应用进程/单 worker、本地 SQLite；SQLAlchemy 可配置 PostgreSQL，但尚未完成真实 PostgreSQL 验收；SSE 队列和活动任务在内存，无用户归属鉴权 |
-| 下一阶段选定方向 | 模块化单体，单 Agent 自主 ReAct；以低层 LangGraph `StateGraph` 验证持久化执行和可恢复追问，直接复用模型及工具接口 |
-| 验收后切换 | M1 恢复、行为、兼容和数据库验收通过后，LangGraph 接替新运行的默认执行层；旧 runner 仅为迁移期间基线/回退 |
+| 当前已实现 | React/TS/Vite、FastAPI/Pydantic、`ChatModel`、`ToolRegistry`、LangGraph持久ReAct；多次 `ask_user`、完整journal、问题/答案幂等、公共事件重放、无损工具表示、来源引用、现有行程一致性校验 |
+| 当前部署边界 | 单应用进程/单 worker、本地默认 SQLite；真实 PostgreSQL 17恢复验收已通过；活动任务仍在内存但可由持久cursor恢复，无用户归属鉴权 |
+| 当前方向 | 模块化单体，单 Agent 自主 ReAct；低层 LangGraph `StateGraph`直接复用模型及工具接口 |
+| 默认引擎 | LangGraph接替未绑定版本的新会话默认执行层；旧runner保留基线/回退，已有图线程保持绑定 |
 | 后续能力 | 需求/事实校验、中文多轮评测、工具 MCP 入口、有限并行、派生时间线/地图；多用户和多实例另设准入门槛 |
 
-当前保存记录不等于恢复执行位置。`storage.recover_runs()` 把正在执行的任务标成中断，
+迁移前仅保存记录，未保存执行位置。legacy `storage.recover_runs()` 把正在执行的任务标成中断，
 `repair_history()` 为悬空工具调用补错误；下一条消息重新进入模型循环。等待回复可恢复聊天，
 但没有持久化的问题关联或答案消费记录。`service` 的活动任务、SSE 队列和失败保存补偿也在
 进程内。现有 `active_run_id/revision` 提供一部分隔离，`append_message()` 仍是读取后修改
@@ -56,13 +58,15 @@ LLM 决定提问、工具、顺序及交付；不放入“先问完、先天气�
 
 ### Runtime 接口与改动位置
 
-以下是拟议契约而非已存在的 API：
+以下是设计阶段的职责契约；落地的 `ExecutionRuntime.execute(lease)` 与 `RuntimeService`
+接缝见 `src/travel_agent/runtime.py`，具体恢复交给图cursor，未另造start/resume调度器：
 
 ```python
 class AgentRuntime(Protocol):
     async def start(self, context: RunContext, input_message_id: str) -> RuntimeOutcome: ...
-    async def resume(self, context: RunContext, answer_message_id: str,
-                     question_id: str) -> RuntimeOutcome: ...
+    async def resume(
+        self, context: RunContext, answer_message_id: str, question_id: str
+    ) -> RuntimeOutcome: ...
     async def recover(self, context: RunContext) -> RuntimeOutcome: ...
     async def inspect(self, conversation_id: str) -> PublicRunView: ...
 ```
@@ -216,12 +220,12 @@ M2校验只能验证原始候选/需求/来源元信息的一致性和新鲜度�
 
 ## 6. 首个实施任务与未决技术问题
 
-首个实施任务按0→1→2推进：runtime协议与legacy适配；隔离库saver/fencing spike；
+M1已完成runtime协议与legacy适配、隔离库saver/fencing验证、
 Alembic和原始消息/运行/请求/问题/效果/事件最小表；通用model/tool/publish/wait/final图；
 现有service/API接入幂等和resume；持久事件与前端去重；真实进程failpoint与Postgres验收。
-每项独立提交，任何迁移闸门失败都保持legacy默认。
+M1保持独立提交，后续产品功能不混入恢复验收。以后任何引擎迁移闸门失败不切新默认。
 
-需在spike确定的工程问题（不重新询问已知产品偏好）：
+工程取舍已经记录在持久运行说明；以下是后续升级仍需重新验证的边界：
 
 - LangGraph及独立checkpoint包的兼容版本、`ainvoke`/interrupt/sync durability实际签名和serializer行为；官方网页会更新，依赖须固定。
 - 异步Postgres saver驱动/连接、原子fencing或代际存储隔离方案；不能仅保护业务表。

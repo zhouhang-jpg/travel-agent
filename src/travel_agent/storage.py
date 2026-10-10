@@ -195,7 +195,12 @@ class ConversationStore:
             rows = (
                 await session.scalars(select(Conversation).where(Conversation.status == "running"))
             ).all()
+            # Graph threads remain pinned even when the new-run engine is legacy.
+            from travel_agent.durable_storage import Head
+
             for row in rows:
+                if await session.get(Head, row.id):
+                    continue
                 now = utc_now().isoformat()
                 message = "服务重启中断了上一轮执行。已保留历史，你可以发送消息继续。"
                 row.history = repair_history(row.history)

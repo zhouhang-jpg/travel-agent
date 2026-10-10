@@ -1,7 +1,7 @@
 """Local development HTTP surface. Bind to 127.0.0.1; no production auth layer yet."""
 
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -10,8 +10,11 @@ from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
 from travel_agent.api import router as conversation_router
+from travel_agent.durable_service import DurableService
 from travel_agent.models import ModelError, OpenAICompatibleModel
 from travel_agent.runner import RunLimits, repair_history
+from travel_agent.runtime import RuntimeService
+from travel_agent.saver_lifecycle import open_saver
 from travel_agent.service import AgentService
 from travel_agent.storage import ConversationStore
 from travel_tools.bootstrap import build_registry
@@ -28,7 +31,10 @@ def create_app(
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        async with httpx.AsyncClient(trust_env=False, follow_redirects=False) as client:
+        async with AsyncExitStack() as stack:
+            client = await stack.enter_async_context(
+                httpx.AsyncClient(trust_env=False, follow_redirects=False)
+            )
             config = settings or Settings()
             app.state.registry = registry or build_registry(config, client)
             if config.llm_provider == "deepseek":
@@ -61,19 +67,25 @@ def create_app(
             database = store or ConversationStore(config.database_url)
             await database.initialize()
             await database.recover_runs(repair_history)
-            app.state.agent = AgentService(
+            limits = RunLimits(
+                max_steps=config.agent_max_steps, max_run_seconds=config.agent_max_run_seconds
+            )
+            # SDK saver schema lifecycle is separate from application Alembic.
+            saver = await stack.enter_async_context(open_saver(database.engine.url))
+            legacy = AgentService(
                 database,
                 selected_model,
                 app.state.registry,
-                RunLimits(
-                    max_steps=config.agent_max_steps,
-                    max_run_seconds=config.agent_max_run_seconds,
-                ),
+                limits,
             )
+            durable = DurableService(database, selected_model, app.state.registry, limits, saver)
+            app.state.agent = RuntimeService(legacy, durable, config.agent_engine)
+            await durable.recover()
             app.state.agent_health = {
                 "model_configured": selected_model is not None,
                 "model": model_name or "",
                 "provider": config.llm_provider,
+                "engine": config.agent_engine,
             }
             try:
                 yield

@@ -32,7 +32,9 @@ class AgentService:
         await self._flush_failed()
         return await self.store.list()
 
-    async def start(self, conversation_id: str, content: str) -> asyncio.Queue:
+    async def start(
+        self, conversation_id: str, content: str, request_id=None, question_id=None
+    ) -> asyncio.Queue:
         if self.model is None:
             raise ModelNotConfigured
         await self._flush_failed()
@@ -125,6 +127,7 @@ async def stream_events(queue: asyncio.Queue) -> AsyncIterator[str]:
         except TimeoutError:
             yield ": keepalive\n\n"
             continue
-        yield "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
+        prefix = f"id: {event['event_seq']}\n" if "event_seq" in event else ""
+        yield prefix + "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
         if event.get("type") == "done":
             break

@@ -23,8 +23,6 @@ async function checkResponse(response: Response) {
   }
   if (response.status === 503) {
     message = '模型服务尚未就绪。请在后端配置 DeepSeek API Key，再重试。';
-  } else if (response.status === 409) {
-    message = '这个会话正在执行，请等待当前结果后继续发送。';
   }
   throw new APIError(response.status, message);
 }
@@ -44,16 +42,43 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ timezone: 'Asia/Shanghai' }),
   }),
-  async send(id: string, content: string, onEvent: (event: AgentEvent) => void) {
+  async replay(id: string, after: number, onEvent: (event: AgentEvent) => void, signal: AbortSignal) {
+    const response = await fetch(`${ROOT}/conversations/${encodeURIComponent(id)}/events?after=${after}`, {
+      headers: { Accept: 'text/event-stream' }, signal,
+    });
+    await checkResponse(response);
+    if (response.body) await readSSE<AgentEvent>(response.body, onEvent);
+  },
+  async send(id: string, content: string, onEvent: (event: AgentEvent) => void, questionId?: string | null) {
+    const key = `travel-agent.pending.${id}`;
+    let pending = { content, request_id: crypto.randomUUID(), question_id: questionId ?? undefined };
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(key) ?? 'null') as typeof pending | null;
+      if (saved?.content === content) pending = saved;
+      sessionStorage.setItem(key, JSON.stringify(pending));
+    } catch { /* The request still has an idempotency key if storage is unavailable. */ }
     const response = await fetch(`${ROOT}/conversations/${encodeURIComponent(id)}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify(pending),
     });
-    await checkResponse(response);
+    try {
+      await checkResponse(response);
+    } catch (error) {
+      if (error instanceof APIError && error.status >= 400 && error.status < 500) {
+        try { sessionStorage.removeItem(key); } catch { /* Optional browser storage. */ }
+      }
+      throw error;
+    }
     if (!response.headers.get('content-type')?.includes('text/event-stream') || !response.body) {
       throw new Error('服务未返回有效的进度连接，请重新载入会话。');
     }
-    await readSSE<AgentEvent>(response.body, onEvent);
+    let done = false;
+    await readSSE<AgentEvent>(response.body, (event) => {
+      if (event.type === 'done') done = true;
+      onEvent(event);
+    });
+    if (!done) throw new Error('进度连接已断开，请重新载入会话查看结果。');
+    try { sessionStorage.removeItem(key); } catch { /* Optional browser storage. */ }
   },
 };

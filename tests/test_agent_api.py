@@ -90,6 +90,7 @@ def database_url(path):
 def settings():
     return Settings(
         _env_file=None,
+        agent_engine="legacy",  # Keep the legacy baseline independently verified.
         deepseek_api_key=None,
         llm_api_key=None,
         llm_provider="deepseek",
