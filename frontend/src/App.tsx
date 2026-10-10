@@ -3,6 +3,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api, APIError } from './api';
 import { ItineraryPanel } from './ItineraryPanel';
+import { describeCalls, updateCalls } from './progress';
+import type { Calls } from './progress';
 import type { AgentEvent, Conversation, ConversationStatus, ConversationSummary, Health } from './types';
 
 const STATUS: Record<ConversationStatus, string> = {
@@ -60,6 +62,7 @@ function savedConversation() {
 }
 
 export default function App() {
+  const toolCalls = useRef<Record<string, Calls>>({});
   const [health, setHealth] = useState<Health | null>(null);
   const [items, setItems] = useState<ConversationSummary[]>([]);
   const [snapshots, setSnapshots] = useState<Record<string, Conversation>>({});
@@ -86,6 +89,10 @@ export default function App() {
   const error = activeId ? errors[activeId] : '';
 
   const updateSnapshot = useCallback((conversation: Conversation) => {
+    if (conversation.tool_progress && (conversation.event_seq ?? 0) >= (eventCursors.current[conversation.id] ?? 0)) {
+      toolCalls.current[conversation.id] = conversation.tool_progress;
+      setProgress((previous) => ({ ...previous, [conversation.id]: describeCalls(conversation.tool_progress!, TOOL_LABELS) }));
+    }
     if (conversation.event_seq !== undefined) {
       eventCursors.current[conversation.id] = Math.max(eventCursors.current[conversation.id] ?? 0, conversation.event_seq);
     }
@@ -175,12 +182,13 @@ export default function App() {
     }
     if (event.type === 'status' || event.type === 'done') {
       updateStatus(id, event.status);
-      if (event.status === 'running') setProgress((previous) => ({ ...previous, [id]: '正在理解你的需求，安排下一步…' }));
-    } else if (event.type === 'tool_started') {
-      setProgress((previous) => ({ ...previous, [id]: `${TOOL_LABELS[event.tool_name] ?? '查询出行信息'}…` }));
-    } else if (event.type === 'tool_finished') {
-      setProgress((previous) => ({ ...previous, [id]: event.status === 'error'
-        ? '部分信息暂时无法获取，正在继续安排…' : '正在整理查询结果…' }));
+      if (event.status === 'running') {
+        toolCalls.current[id] = {};
+        setProgress((previous) => ({ ...previous, [id]: '正在理解你的需求，安排下一步…' }));
+      }
+    } else if (event.type === 'tool_started' || event.type === 'tool_progress' || event.type === 'tool_finished') {
+      toolCalls.current[id] = updateCalls(toolCalls.current[id] ?? {}, event);
+      setProgress((previous) => ({ ...previous, [id]: describeCalls(toolCalls.current[id], TOOL_LABELS) }));
     } else if (event.type === 'itinerary_updated') {
       void refreshConversation(id).catch(() => undefined);
     } else if (event.type === 'message') {

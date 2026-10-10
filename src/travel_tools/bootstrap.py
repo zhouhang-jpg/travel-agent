@@ -1,5 +1,7 @@
 """Wire the catalog without executing any provider or model request."""
 
+from hashlib import sha256
+
 import httpx
 
 from travel_tools.config import Settings, has_secret
@@ -10,6 +12,7 @@ from travel_tools.providers.bocha import BochaAdapter
 from travel_tools.providers.qweather import QWeatherAdapter
 from travel_tools.quote_registry import register_quote_tools
 from travel_tools.registry import ToolRegistry, ToolSpec
+from travel_tools.scheduling import SupplierPolicy, SupplierScheduler
 from travel_tools.schemas.itinerary import ValidateItineraryInput, ValidateItineraryOutput
 from travel_tools.schemas.opening_hours import (
     GetAttractionOpeningHoursInput,
@@ -33,6 +36,24 @@ def build_registry(settings: Settings, client: httpx.AsyncClient) -> ToolRegistr
     registry = ToolRegistry(
         timeout_seconds=settings.tool_timeout_seconds,
         max_concurrent_calls=settings.max_concurrent_calls,
+        scheduler=SupplierScheduler(
+            {
+                name: SupplierPolicy(limit.concurrency, limit.requests_per_second)
+                for name, limit in settings.supplier_limits.items()
+            }
+        ),
+        cache_scope=sha256(
+            (
+                repr(settings)
+                + repr(
+                    {
+                        name: value.get_secret_value()
+                        for name, value in settings
+                        if hasattr(value, "get_secret_value")
+                    }
+                )
+            ).encode()
+        ).hexdigest(),
     )
     amap = (
         AmapAdapter(settings.amap_api_key.get_secret_value(), client)
@@ -113,6 +134,16 @@ def build_registry(settings: Settings, client: httpx.AsyncClient) -> ToolRegistr
                 availability="ready" if adapter else "not_configured",
                 reason=None if adapter else reason,
                 requires_external_service=True,
+                execution="parallel_read",
+                cache_seconds=(
+                    settings.cache_weather_seconds
+                    if name == "get_weather"
+                    else settings.cache_routes_seconds
+                    if name == "get_routes"
+                    else settings.cache_web_seconds
+                    if name == "search_web"
+                    else settings.cache_places_seconds
+                ),
             )
         )
     registry.register(
@@ -128,6 +159,8 @@ def build_registry(settings: Settings, client: httpx.AsyncClient) -> ToolRegistr
             OpeningHoursLookup(amap, bocha).get_attraction_opening_hours,
             "ready",
             requires_external_service=True,
+            execution="parallel_read",
+            cache_seconds=settings.cache_web_seconds,
         )
     )
     registry.register(
@@ -139,6 +172,8 @@ def build_registry(settings: Settings, client: httpx.AsyncClient) -> ToolRegistr
             WebpageFetcher().fetch_webpage,
             "ready",
             requires_external_service=True,
+            execution="parallel_read",
+            cache_seconds=settings.cache_web_seconds,
         )
     )
     registry.register(
@@ -150,6 +185,7 @@ def build_registry(settings: Settings, client: httpx.AsyncClient) -> ToolRegistr
             ValidateItineraryOutput,
             validate_itinerary,
             "ready",
+            execution="parallel_read",
         )
     )
     register_quote_tools(registry, settings, client)

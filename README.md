@@ -19,6 +19,8 @@
   和限定范围的“你决定”；没有固定问卷、追问次数或答案模板。
 - **真实工具查询**：接入高德、和风天气、博查，以及独立的票务、酒店和公开网页适配器。
   保留来源、查询时间、缺失、失败与覆盖边界。
+- **受控并行与短期复用**：同批独立只读查询可并行，供应商和浏览器分别限流；已完成结果
+  独立保存，完整历史保持模型原调用顺序。缓存保留原取数时间，可显式强制刷新。
 - **行程版本与局部修改**：按稳定条目 ID 修改指定活动，检查连带转场、住宿与费用影响，
   保留未涉及的安排；网页可查看旧版本、修改原因及时间和费用差异。
 - **固定安排保护**：区分用户锁定与用户自报已订，依据用户原话保护安排。自报已订不等于
@@ -206,7 +208,8 @@ Alembic 管理；降级不能假定旧运行器能够恢复新图线程。
   资源超限仍需明确报告。失败不自动切换模型系列。
 - 来源对应与校验只检查提供数据的一致性，不能保证全部需求已覆盖、未来可售库存、
   预订真实或行程安全。用户自报、估计、部分结果和未知保留各自语义。
-- 供应商并行与结果复用、完整方案比较、地图/时间轴/导出及主动提醒**仍待实施**，
+- 供应商并行与结果复用已实现，默认总工具并发 4、浏览器并发 2，来源另有限流；详见
+  [查询运行与验收](docs/query-runtime.md)。完整方案比较、地图/时间轴/导出及主动提醒**仍待实施**，
   详见[后续迭代计划](docs/next-iteration.md)。
 
 ## 开发验证
@@ -235,6 +238,7 @@ uv run python scripts/live_probe_durable.py --live
 uv run python scripts/live_probe_itinerary_edit.py --live
 uv run python scripts/live_probe_tickets.py --live
 uv run python scripts/live_probe_weather.py --live --model
+uv run python scripts/benchmark_queries.py --live
 ```
 
 结果保存在忽略的 `artifacts/`，部分探针包含隔离会话库和完整私有记录，不应公开上传。
@@ -250,6 +254,7 @@ uv run python scripts/live_probe_weather.py --live --model
 | Agent 与模型 | [行为及完整上下文](docs/agent-behavior.md)、[DeepSeek 接口](docs/providers/deepseek.md) |
 | 行程与版本 | [版本、局部修改与验收](docs/itinerary-versions.md)、[校验规则](docs/itinerary.md) |
 | 工具与报价 | [工具层](docs/tool-layer.md)、[报价合同](docs/quotes.md)、[开放时间](docs/opening-hours.md) |
+| 查询速度与可靠性 | [并行、限流、缓存、进度与恢复验收](docs/query-runtime.md)；离线复现 `python scripts/benchmark_queries.py` |
 | 地图/天气/搜索 | [高德](docs/providers/amap.md)、[和风](docs/providers/qweather.md)、[博查](docs/providers/bocha.md) |
 | 票务与酒店 | [浏览器来源](docs/providers/browser-tickets.md)、[FlyAI](docs/providers/flyai.md)、[供应商比较](docs/providers/ticket-suppliers.md)、[聚合铁路](docs/providers/juhe-train.md)、[极速大巴](docs/providers/jisu-coach.md) |
 | 前端与后续工作 | [前端说明](frontend/README.md)、[验证记录](docs/verification.md)、[后续迭代](docs/next-iteration.md) |

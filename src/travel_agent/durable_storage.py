@@ -383,13 +383,16 @@ class DurableStore:
             ]
             return None
 
-    async def commit_effect(self, lease, key, payload, raw, question=None, itinerary=None):
+    async def commit_effect(
+        self, lease, key, payload, raw, question=None, itinerary=None, *, defer_history=False
+    ):
         async with self.guarded(lease) as (session, head, conversation, run):
             effect = await session.get(Effect, key)
             if effect.status == "complete":
                 return
             effect.status, effect.payload = "complete", deepcopy(payload)
-            await self.append_raw(session, head, conversation, key, raw)
+            if not defer_history:
+                await self.append_raw(session, head, conversation, key, raw)
             if itinerary:
                 await stage_version(session, head.id, run.id, key, head.journal_seq, itinerary)
             elif raw.get("role") == "tool" and payload.get("status") == "error":
@@ -409,6 +412,15 @@ class DurableStore:
                     )
                 )
 
+    async def merge_tools(self, lease, keys):
+        """Publish an ordered prefix atomically; effects remain independent facts."""
+        async with self.guarded(lease) as (session, head, conversation, _):
+            for key in keys:
+                effect = await session.get(Effect, key)
+                if not effect or effect.status != "complete":
+                    raise ValueError("Cannot publish incomplete tool history.")
+                await self.append_raw(session, head, conversation, key, effect.payload["raw"])
+
     async def emit(self, lease, key, payload):
         async with self.guarded(lease) as (session, head, conversation, run):
             await self.event(session, head, conversation, run, key, payload)
@@ -426,6 +438,35 @@ class DurableStore:
                 return
             if result["status"] == "error":
                 from travel_agent.runner import _repair
+
+                # A timeout between independent commits and ordered publication must
+                # retain successful facts. Fill only genuinely unknown calls below.
+                journals = (
+                    await session.scalars(
+                        select(Journal)
+                        .where(Journal.conversation_id == head.id)
+                        .order_by(Journal.seq)
+                    )
+                ).all()
+                for journal in journals:
+                    if not journal.id.startswith(run.id + "/model/"):
+                        continue
+                    for index, call in enumerate(journal.payload.get("tool_calls") or []):
+                        key = f"{journal.id}/tool/{index}"
+                        if await session.get(Journal, key):
+                            continue
+                        effect = await session.get(Effect, key)
+                        if effect and effect.status == "complete":
+                            raw = effect.payload["raw"]
+                        else:
+                            from travel_agent.runner import _tool_result
+
+                            raw = _tool_result(
+                                call,
+                                code=result["error"]["code"],
+                                message=result["error"]["message"],
+                            )
+                        await self.append_raw(session, head, conversation, key, raw)
 
                 repaired = _repair(
                     conversation.history, result["error"]["code"], result["error"]["message"]

@@ -78,6 +78,7 @@ def register_quote_tools(
                 registry.timeout_seconds * 0.8,
             ),
             cache_seconds=getattr(settings, "browser_query_cache_seconds", 0),
+            max_concurrent_queries=settings.browser_max_concurrent_queries,
         )
         registry.add_closer(runtime.close)
         train_adapters["12306"] = Rail12306Adapter(runtime, client)
@@ -163,5 +164,7 @@ def register_quote_tools(
                 availability="ready" if adapter is not None else "not_configured",
                 reason=None if adapter is not None else reason,
                 requires_external_service=True,
+                execution="parallel_read",
+                cache_seconds=settings.cache_quotes_seconds,
             )
         )

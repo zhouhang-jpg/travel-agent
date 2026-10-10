@@ -186,6 +186,44 @@ def test_budget_survives_process_restart(isolated_database, tmp_path):
     assert trace(tmp_path, "model") == 2
 
 
+@pytest.mark.parametrize(
+    "crash",
+    [
+        "parallel_fast_saved_before_slow",
+        "tools_effects_saved_before_merge",
+        "tools_history_merged_before_checkpoint",
+    ],
+)
+def test_parallel_process_crash_windows(isolated_database, tmp_path, crash):
+    cid = create(isolated_database)
+    worker(tmp_path, isolated_database, cid, scenario="parallel", crash=crash)
+
+    async def inspect_before():
+        store = ConversationStore(isolated_database)
+        facts = DurableStore(store)
+        async with store.sessions() as session:
+            effects = (await session.scalars(select(Effect).where(Effect.kind == "tool"))).all()
+            assert next(e for e in effects if e.id.endswith("/1")).status == "complete"
+            slow = next(e for e in effects if e.id.endswith("/0"))
+            assert slow.status == (
+                "started" if crash == "parallel_fast_saved_before_slow" else "complete"
+            )
+        history = await facts.history(cid)
+        assert len([m for m in history if m["role"] == "tool"]) == (
+            2 if crash == "tools_history_merged_before_checkpoint" else 0
+        )
+        await store.close()
+
+    asyncio.run(inspect_before())
+    public = worker(tmp_path, isolated_database, cid, scenario="parallel", mode="recover")
+    assert public["status"] == "completed"
+    assert trace(tmp_path, "model") == 2
+    assert trace(tmp_path, "tool:1") == 1
+    assert trace(tmp_path, "tool:0") == (2 if crash == "parallel_fast_saved_before_slow" else 1)
+    repeated = worker(tmp_path, isolated_database, cid, scenario="parallel")
+    assert repeated["status"] == "completed" and trace(tmp_path, "model") == 2
+
+
 def test_real_postgres_alembic_reversible(isolated_database):
     environment = {**os.environ, "DATABASE_URL": isolated_database}
     for arguments in [("upgrade", "head"), ("downgrade", "0001"), ("upgrade", "head")]:

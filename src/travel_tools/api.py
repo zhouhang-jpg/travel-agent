@@ -141,7 +141,7 @@ def create_app(
         except ValidationError:
             raise HTTPException(422, "Invalid JSON tool-call envelope.") from None
         return await request.app.state.registry.dispatch(
-            tool_name, parsed.arguments, call_id=parsed.call_id
+            tool_name, parsed.arguments, call_id=parsed.call_id, refresh=parsed.force_refresh
         )
 
     return app

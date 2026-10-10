@@ -8,7 +8,9 @@
 
 `graph_runtime.py` 使用低层 `StateGraph`，节点为 model、tools、wait、final。
 模型自主选择提问、工具及交付，图没有天气→交通→酒店等业务步骤。
-工具批次串行、逐项提交；mixed ask_user整批返回原协议错误。
+阶段A已将显式安全的独立只读查询并行、效果逐项独立提交，再按原调用顺序合并历史；
+状态操作保持顺序边界，mixed ask_user整批返回原协议错误。细节及新增恢复验收见
+[查询运行说明](query-runtime.md)。
 `ChatModel` 和 `ToolRegistry` 原样复用，不转换为 LangChain 消息。
 
 | 权威 | 保存内容 |

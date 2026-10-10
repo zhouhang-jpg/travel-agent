@@ -33,6 +33,8 @@ def settings(**overrides):
     return SimpleNamespace(
         **(
             {
+                "cache_quotes_seconds": 20,
+                "browser_max_concurrent_queries": 2,
                 "flyai_api_key": None,
                 "flyai_enable_demo": False,
                 "flyai_node_path": None,

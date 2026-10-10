@@ -23,6 +23,7 @@ export interface Conversation extends ConversationSummary {
   question_id?: string | null;
   engine?: string;
   event_seq?: number;
+  tool_progress?: Record<string, { name: string; status: string; reused: boolean }>;
   itinerary?: ItineraryVersion | null;
 }
 
@@ -34,8 +35,10 @@ export interface Health {
 
 export type AgentEvent = ({ event_seq?: number; run_id?: string; message_id?: string; question_id?: string } & (
   | { type: 'status'; status: ConversationStatus }
-  | { type: 'tool_started'; tool_name: string }
-  | { type: 'tool_finished'; tool_name: string; status: 'ok' | 'error' }
+  | { type: 'tool_started'; tool_name: string; call_id?: string }
+  | { type: 'tool_progress'; tool_name: string; call_id: string; status: 'queued' | 'running' | 'reused' }
+  | { type: 'supplier_progress'; tool_name: string; call_id: string; request_id: string; supplier: string; status: 'queued' | 'running' | 'ok' | 'error' }
+  | { type: 'tool_finished'; tool_name: string; call_id?: string; status: 'ok' | 'error' }
   | { type: 'message'; role: 'user' | 'assistant'; content: string; kind: 'message' | 'question' | 'answer' | 'error' }
   | { type: 'done'; status: ConversationStatus }
   | { type: 'itinerary_updated'; version_id: string; revision: number }

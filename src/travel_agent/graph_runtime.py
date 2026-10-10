@@ -90,6 +90,18 @@ class GraphRuntime:
             },
             "max_steps": limits.max_steps,
             "max_run_seconds": limits.max_run_seconds,
+            "query_runtime": {
+                "max_concurrent_calls": registry.max_concurrent_calls,
+                "timeout_seconds": registry.timeout_seconds,
+                "cache_scope": registry.cache_scope,
+                "suppliers": {
+                    name: {
+                        "concurrency": policy.concurrency,
+                        "requests_per_second": policy.requests_per_second,
+                    }
+                    for name, policy in registry.scheduler.policies.items()
+                },
+            },
         }
         self.manifest["signature"] = sha256(
             json.dumps(self.manifest, sort_keys=True, ensure_ascii=False).encode()
@@ -165,21 +177,35 @@ class GraphRuntime:
         model = await self.facts.effect(state["model_key"])
         calls = model.payload["message"]["tool_calls"]
         mixed = len(calls) != 1 and any(c["function"]["name"] == "ask_user" for c in calls)
-        for index, call in enumerate(calls):
+
+        async def execute_one(index, call):
             name = call["function"]["name"]
             key = f"{state['model_key']}/tool/{index}"
-            await self.facts.emit(
-                lease,
-                key + "/started",
-                {
-                    "type": "tool_started",
-                    "tool_name": name,
-                    "status": "running",
-                },
-            )
+
+            async def progress(stage, **detail):
+                supplier = stage.startswith("supplier_")
+                await self.facts.emit(
+                    lease,
+                    key + "/" + stage + ("/" + detail["request_id"] if supplier else ""),
+                    {
+                        "type": "supplier_progress"
+                        if supplier
+                        else "tool_started"
+                        if stage == "running"
+                        else "tool_progress",
+                        "tool_name": name,
+                        "call_id": key,
+                        "status": stage.removeprefix("supplier_"),
+                        **detail,
+                    },
+                )
+
             payload = await self.facts.begin_effect(lease, key, "tool", self.limits.max_steps)
             if payload is None:
+                await progress("queued")
                 itinerary = None
+                if mixed or name in {"ask_user", "save_itinerary"}:
+                    await progress("running")
                 if mixed:
                     raw = _tool_result(
                         call,
@@ -242,7 +268,7 @@ class GraphRuntime:
                             message="行程或引用格式不完整，请依据工具schema修正；普通查询无需保存。",
                         )
                 else:
-                    raw = await self.executor._execute(call)
+                    raw = await self.executor._execute(call, progress=progress)
                 await self.hit("tool_returned_before_save")
                 result = json.loads(raw["content"])
                 question = None
@@ -252,19 +278,67 @@ class GraphRuntime:
                         "message": result["data"]["message"],
                     }
                 payload = {"raw": raw, "status": result["status"], "question": question}
-                await self.facts.commit_effect(lease, key, payload, raw, question, itinerary)
+                await self.facts.commit_effect(
+                    lease,
+                    key,
+                    payload,
+                    raw,
+                    question,
+                    itinerary,
+                    defer_history=name not in {"ask_user", "save_itinerary"},
+                )
                 await self.hit("question_draft" if question else "tool_saved_before_checkpoint")
+                await self.hit(f"tool_effect_saved:{index}")
+            else:
+                await progress("reused")
             await self.facts.emit(
                 lease,
                 key + "/finished",
                 {
                     "type": "tool_finished",
+                    "call_id": key,
                     "tool_name": name,
                     "status": payload["status"],
                 },
             )
-            if payload["question"]:
-                return {"route": "wait", "question_id": payload["question"]["id"]}
+            return payload
+
+        # Explicit read-only/parallel-safe tools form concurrent segments.
+        # Unknown tools and state operations are barriers; the model chooses calls.
+        position = 0
+        while position < len(calls):
+            end = position + 1
+            if not mixed and self.registry.parallel_safe(calls[position]["function"]["name"]):
+                while end < len(calls) and self.registry.parallel_safe(
+                    calls[end]["function"]["name"]
+                ):
+                    end += 1
+            pending = iter(range(position, end))
+            results = {}
+
+            async def worker(pending=pending, results=results):
+                for index in pending:
+                    results[index] = await execute_one(index, calls[index])
+
+            tasks = [
+                asyncio.create_task(worker())
+                for _ in range(min(self.registry.max_concurrent_calls, end - position))
+            ]
+            try:
+                await asyncio.gather(*tasks)
+            finally:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+            await self.hit("tools_effects_saved_before_merge")
+            await self.facts.merge_tools(
+                lease, [f"{state['model_key']}/tool/{i}" for i in range(position, end)]
+            )
+            await self.hit("tools_history_merged_before_checkpoint")
+            for index in range(position, end):
+                if results[index]["question"]:
+                    return {"route": "wait", "question_id": results[index]["question"]["id"]}
+            position = end
         return {"route": "model", "step": state["step"] + 1}
 
     async def wait_node(self, state: State, runtime: Runtime[Context]):

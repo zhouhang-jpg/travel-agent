@@ -259,7 +259,7 @@ class AgentRunner:
                 return False
         return True
 
-    async def _execute(self, call: dict) -> dict:
+    async def _execute(self, call: dict, *, progress=None) -> dict:
         name = call["function"]["name"]
         try:
             arguments = json.loads(call["function"]["arguments"])
@@ -282,13 +282,17 @@ class AgentRunner:
                 )
             return _tool_result(call, data={"message": question, "state": "waiting_user"})
         try:
-            result = await self.registry.dispatch(name, arguments, call_id=call["id"])
+            result = await self.registry.dispatch(
+                name, arguments, call_id=call["id"], progress=progress
+            )
             return {
                 "role": "tool",
                 "tool_call_id": call["id"],
                 "content": encode_tool_result(result.model_dump(mode="json")),
             }
         except Exception:
+            if progress is not None:
+                raise
             return _tool_result(
                 call, code="tool_exception", message="工具执行异常；没有获得可用结果。"
             )

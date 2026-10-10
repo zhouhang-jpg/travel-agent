@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from travel_tools.common import ToolFailure
+from travel_tools.scheduling import supplier_slot
 
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 REQUEST_TIMEOUT_SECONDS = 15
@@ -24,7 +25,13 @@ async def bounded_json_request(
 ) -> dict[str, Any]:
     """One request, bounded decoded body and deadline, no redirects or raw errors."""
     try:
-        async with asyncio.timeout(REQUEST_TIMEOUT_SECONDS):
+        supplier = {
+            "Bocha": "bocha",
+            "QWeather": "qweather",
+            "Jisu coach": "jisu_coach",
+            "Juhe train": "juhe_train",
+        }.get(provider, provider.lower())
+        async with asyncio.timeout(REQUEST_TIMEOUT_SECONDS), supplier_slot(supplier):
             async with client.stream(
                 method,
                 url,

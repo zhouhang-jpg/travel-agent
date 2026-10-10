@@ -16,6 +16,7 @@ from travel_tools.providers.ticket_data import (
     local_time,
     validate_party,
 )
+from travel_tools.scheduling import supplier_slot
 from travel_tools.schemas.quotes import (
     SearchTrainsInput,
     SearchTrainsOutput,
@@ -63,7 +64,8 @@ class Rail12306Adapter:
     async def _station(self, location) -> tuple[str, str]:
         if not self._stations:
             try:
-                response = await self.client.get(CATALOG_URL, timeout=5, follow_redirects=False)
+                async with supplier_slot("12306"):
+                    response = await self.client.get(CATALOG_URL, timeout=5, follow_redirects=False)
                 if response.status_code in (401, 403, 429, 432):
                     raise ToolFailure(
                         "provider_access_blocked", "Public station catalog access denied."

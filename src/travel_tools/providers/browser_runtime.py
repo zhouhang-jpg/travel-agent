@@ -7,6 +7,7 @@ from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+from threading import Event
 from typing import Any
 
 from playwright.async_api import Error as BrowserError
@@ -14,13 +15,19 @@ from playwright.async_api import TimeoutError as BrowserTimeout
 from playwright.async_api import async_playwright
 
 from travel_tools.common import ToolFailure, utc_now
+from travel_tools.scheduling import force_refresh, supplier_slot
 
 
 class BrowserQueryRuntime:
-    def __init__(self, *, timeout: float = 18, cache_seconds: float = 0):
+    def __init__(
+        self, *, timeout: float = 18, cache_seconds: float = 0, max_concurrent_queries: int = 2
+    ):
         self.timeout = timeout
         self.cache_seconds = cache_seconds
-        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="travel-browser")
+        self._executor = ThreadPoolExecutor(
+            max_workers=max_concurrent_queries, thread_name_prefix="travel-browser"
+        )
+        self._slots = asyncio.Semaphore(max_concurrent_queries)
         self._cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
         self._closed = False
 
@@ -28,13 +35,46 @@ class BrowserQueryRuntime:
         if self._closed:
             raise ToolFailure("provider_unavailable", "Browser query runtime is closed.")
         cached = self._cache.get(key)
-        if cached and time.monotonic() - cached[0] < self.cache_seconds:
+        if not force_refresh.get() and cached and time.monotonic() - cached[0] < self.cache_seconds:
             result = deepcopy(cached[1])
             result["cache_hit"] = True
             return result
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(self._executor, self._run, callback)
-        if self.cache_seconds > 0 and result.get("rows"):
+        async with supplier_slot(key.split(":", 1)[0]):
+            async with self._slots:
+                if self._closed:
+                    raise ToolFailure("provider_unavailable", "Browser query runtime is closed.")
+                stopped = Event()
+
+                async def guarded(page):
+                    async def cancellation():
+                        while not stopped.is_set():  # noqa: ASYNC110 - cross-thread Event
+                            await asyncio.sleep(0.05)
+
+                    task = asyncio.create_task(callback(page))
+                    signal = asyncio.create_task(cancellation())
+                    try:
+                        done, _ = await asyncio.wait(
+                            [task, signal], return_when=asyncio.FIRST_COMPLETED
+                        )
+                        if signal in done:
+                            raise asyncio.CancelledError
+                        return await task
+                    finally:
+                        task.cancel()
+                        signal.cancel()
+                        await asyncio.gather(task, signal, return_exceptions=True)
+
+                loop = asyncio.get_running_loop()
+                future = loop.run_in_executor(self._executor, self._run, guarded)
+                try:
+                    result = await asyncio.shield(future)
+                except asyncio.CancelledError:
+                    stopped.set()
+                    # Await real thread completion and browser/driver cleanup before
+                    # releasing either capacity. Await cancellation never stops a thread.
+                    await asyncio.gather(asyncio.shield(future), return_exceptions=True)
+                    raise
+        if not self._closed and self.cache_seconds > 0 and result.get("rows"):
             self._cache[key] = (time.monotonic(), deepcopy(result))
             self._cache.move_to_end(key)
             while len(self._cache) > 64:

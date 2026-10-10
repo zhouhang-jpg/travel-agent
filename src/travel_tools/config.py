@@ -1,7 +1,12 @@
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class SupplierLimit(BaseModel):
+    concurrency: int = Field(default=1, ge=1, le=16)
+    requests_per_second: float = Field(default=1, ge=0, le=50)
 
 
 class Settings(BaseSettings):
@@ -16,6 +21,26 @@ class Settings(BaseSettings):
     train_fallback_provider: Literal["flyai", "none"] = "flyai"
     coach_search_provider: Literal["bus365", "jisu"] = "bus365"
     browser_queries_enabled: bool = False
+    browser_max_concurrent_queries: int = Field(default=2, ge=1, le=4)
+    supplier_limits: dict[str, SupplierLimit] = Field(
+        default_factory=lambda: {
+            "amap": SupplierLimit(concurrency=2, requests_per_second=5),
+            "qweather": SupplierLimit(concurrency=2, requests_per_second=3),
+            "bocha": SupplierLimit(concurrency=1, requests_per_second=2),
+            "public_web": SupplierLimit(concurrency=2, requests_per_second=2),
+            "12306": SupplierLimit(),
+            "bus365": SupplierLimit(),
+            "ceair": SupplierLimit(),
+            "flyai": SupplierLimit(),
+            "juhe_train": SupplierLimit(),
+            "jisu_coach": SupplierLimit(),
+        }
+    )
+    cache_places_seconds: float = Field(default=600, ge=0, le=3600)
+    cache_weather_seconds: float = Field(default=120, ge=0, le=600)
+    cache_routes_seconds: float = Field(default=60, ge=0, le=300)
+    cache_web_seconds: float = Field(default=120, ge=0, le=600)
+    cache_quotes_seconds: float = Field(default=20, ge=0, le=60)
     browser_query_timeout_seconds: float = Field(default=18, ge=3, le=55)
     browser_query_cache_seconds: float = Field(default=0, ge=0, le=300)
     jisu_coach_api_key: SecretStr | None = None

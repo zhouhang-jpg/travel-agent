@@ -25,6 +25,7 @@ from pydantic import ValidationError
 
 from travel_tools.common import Source, ToolFailure, utc_now
 from travel_tools.providers.ticket_data import numeric_display, place_key
+from travel_tools.scheduling import supplier_slot
 from travel_tools.schemas.quotes import (
     FlightOffer,
     HotelOffer,
@@ -114,8 +115,15 @@ class FlyAIClient:
         self.timeout = timeout
         self.executor = executor or _execute_cli
         self._check_paths = executor is None
+        self._gate = asyncio.Lock()
 
     async def query(self, command: str, arguments: Sequence[str]) -> list[dict[str, Any]]:
+        # Guard redirects homedir/tmpdir to shared state. Keep this CLI serial until
+        # its device/session files have a verified independent-directory protocol.
+        async with self._gate, supplier_slot("flyai"):
+            return await self._query(command, arguments)
+
+    async def _query(self, command: str, arguments: Sequence[str]) -> list[dict[str, Any]]:
         if command not in {"search-flight", "search-train", "search-hotel"}:
             raise ToolFailure("unsupported_operation", "Only read-only FlyAI searches are allowed.")
         guard = Path(__file__).with_name("flyai_cli_guard.cjs")

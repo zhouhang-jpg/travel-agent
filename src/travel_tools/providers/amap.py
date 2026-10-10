@@ -11,6 +11,7 @@ import httpx
 from pydantic import ValidationError
 
 from travel_tools.common import Source, ToolFailure
+from travel_tools.scheduling import supplier_slot
 from travel_tools.schemas.places import (
     AmapCoordinates,
     GetPlaceDetailsInput,
@@ -189,7 +190,7 @@ class AmapAdapter:
             raise ToolFailure("not_configured", "Amap API key is not configured")
         request_params = {**params, "key": self._api_key, "output": "json"}
         try:
-            async with asyncio.timeout(REQUEST_TIMEOUT_S):
+            async with asyncio.timeout(REQUEST_TIMEOUT_S), supplier_slot("amap"):
                 async with self._client.stream(
                     "GET",
                     BASE_URL + path,

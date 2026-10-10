@@ -1,4 +1,6 @@
 import asyncio
+import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -114,3 +116,52 @@ async def test_actual_verification_notice_is_blocked_but_normal_login_link_is_no
     body.text = "请完成验证，拖动滑块"
     with pytest.raises(ToolFailure):
         await check_access(page)
+
+
+async def test_cancelled_await_keeps_capacity_until_real_thread_finishes(monkeypatch):
+    runtime = BrowserQueryRuntime(max_concurrent_queries=1)
+    intervals = []
+    began = threading.Event()
+
+    def execute(callback):
+        start = time.monotonic()
+        began.set()
+        time.sleep(0.12)
+        intervals.append((start, time.monotonic()))
+        return {"rows": []}
+
+    monkeypatch.setattr(runtime, "_run", execute)
+    try:
+        first = asyncio.create_task(runtime.query("a", None))
+        await asyncio.to_thread(began.wait)
+        second = asyncio.create_task(runtime.query("b", None))
+        first.cancel()
+        await asyncio.gather(first, return_exceptions=True)
+        await second
+        assert len(intervals) == 2 and intervals[1][0] >= intervals[0][1]
+    finally:
+        await runtime.close()
+    assert not any(t.name.startswith("travel-browser") for t in threading.enumerate())
+
+
+async def test_queued_cancellation_and_close_do_not_execute_or_backfill_cache(monkeypatch):
+    runtime = BrowserQueryRuntime(cache_seconds=60, max_concurrent_queries=1)
+    began = threading.Event()
+    count = 0
+
+    def execute(callback):
+        nonlocal count
+        count += 1
+        began.set()
+        time.sleep(0.1)
+        return {"rows": [{"value": 1}]}
+
+    monkeypatch.setattr(runtime, "_run", execute)
+    first = asyncio.create_task(runtime.query("a", None))
+    await asyncio.to_thread(began.wait)
+    queued = asyncio.create_task(runtime.query("b", None))
+    queued.cancel()
+    await asyncio.gather(queued, return_exceptions=True)
+    await runtime.close()
+    await first
+    assert count == 1 and not runtime._cache

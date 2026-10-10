@@ -6,7 +6,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-from travel_agent.durable_storage import DurableStore, Head, Question, StaleOwner
+from travel_agent.durable_storage import DurableStore, Head, PublicEvent, Question, StaleOwner
 from travel_agent.graph_runtime import GraphRuntime, failure
 from travel_agent.itineraries import ItineraryService, public_version
 from travel_agent.service import ModelNotConfigured
@@ -84,6 +84,37 @@ class DurableService:
                 public["question_id"] = (
                     question.id if question and question.status == "ready" else None
                 )
+                # Rebuild the same public call states at this snapshot's cursor.
+                # Refresh must not skip in-progress calls when reconnecting after N.
+                rows = (
+                    await session.scalars(
+                        select(PublicEvent)
+                        .where(
+                            PublicEvent.conversation_id == conversation_id,
+                            PublicEvent.run_id == conversation.active_run_id,
+                            PublicEvent.seq <= head.event_seq,
+                        )
+                        .order_by(PublicEvent.seq)
+                    )
+                ).all()
+                calls = {}
+                for row in rows:
+                    event = row.payload
+                    if event["type"] in {"tool_started", "tool_progress", "tool_finished"}:
+                        call_id = event.get("call_id", event["tool_name"])
+                        status = event.get("status", "running")
+                        old = calls.get(call_id, {})
+                        if old.get("status") in {"ok", "error"} and status not in {
+                            "ok",
+                            "error",
+                        }:
+                            continue
+                        calls[call_id] = {
+                            "name": event["tool_name"],
+                            "status": status,
+                            "reused": old.get("reused", False) or status == "reused",
+                        }
+                public["tool_progress"] = calls
         current = await self.itineraries.current(conversation_id)
         public["itinerary"] = public_version(current) if current else None
         return public
