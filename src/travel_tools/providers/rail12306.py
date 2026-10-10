@@ -16,6 +16,7 @@ from travel_tools.providers.ticket_data import (
     local_time,
     validate_party,
 )
+from travel_tools.query_reuse import SnapshotCache
 from travel_tools.scheduling import supplier_slot
 from travel_tools.schemas.quotes import (
     SearchTrainsInput,
@@ -60,6 +61,7 @@ class Rail12306Adapter:
         self.runtime = runtime
         self.client = client
         self._stations = {}
+        self._snapshots = SnapshotCache()
 
     async def _station(self, location) -> tuple[str, str]:
         if not self._stations:
@@ -150,9 +152,13 @@ class Rail12306Adapter:
             },
             safe=",",
         )
-        raw = await self.runtime.query(
-            "12306:" + request.model_dump_json(), lambda page: self._fetch(page, url, request)
-        )
+
+        async def load_snapshot():
+            return await self.runtime.query(
+                "12306:" + url, lambda page: self._fetch(page, url, request)
+            )
+
+        raw = await self._snapshots.query(url, load_snapshot)
         queried_at = datetime.fromisoformat(raw["retrieved_at"])
         source = Source(provider="rail12306", url=raw["url"], retrieved_at=queried_at)
         offers, malformed = [], 0
@@ -252,6 +258,15 @@ class Rail12306Adapter:
                 "No structurally usable 12306 rows; not no-ticket evidence.",
             )
         matched = len(offers)
+        upcoming_first = request.departure_date == today
+        if upcoming_first:
+            now = datetime.now(ZoneInfo("Asia/Shanghai"))
+            offers.sort(
+                key=lambda offer: (
+                    1 if offer.departure_at is None else 2 if offer.departure_at < now else 0,
+                    offer.departure_at or now,
+                )
+            )
         offers = offers[: request.max_results]
         return SearchTrainsOutput(
             queried_at=queried_at,
@@ -274,5 +289,14 @@ class Rail12306Adapter:
                 "intermediate transfers are not searched here.",
                 f"Read {len(raw['rows'])} rows; matched {matched}; "
                 f"returned {len(offers)}; malformed {malformed}.",
+                *(
+                    [
+                        "Today's not-yet-departed trains are ordered first; departed trains remain "
+                        "after them. Timing does not establish availability "
+                        "or sufficient boarding time."
+                    ]
+                    if upcoming_first
+                    else []
+                ),
             ],
         )

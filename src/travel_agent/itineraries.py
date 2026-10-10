@@ -13,6 +13,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from travel_agent.itinerary_schema import ItineraryDocument, ItineraryPatch, SaveItineraryInput
 from travel_agent.storage import Base
+from travel_agent.tool_arguments import edit_arguments, parse_arguments
 from travel_agent.tool_encoding import decode_tool_result
 from travel_tools.common import Source, utc_now
 from travel_tools.itinerary import validate_itinerary
@@ -175,6 +176,22 @@ def repair_rejected_candidate(arguments, records, run_id, previous):
             result = decode_tool_result(message["content"])
             saves.append((message["tool_call_id"], result, function["arguments"]))
 
+    def syntax_candidate(index):
+        """Reapply earlier explicit syntax edits without requiring intermediate JSON validity."""
+        _, _, text = saves[index]
+        try:
+            envelope = json.loads(text)
+        except json.JSONDecodeError:
+            return text
+        if not isinstance(envelope, dict) or envelope.get("argument_edits") is None:
+            return text
+        envelope = SaveItineraryInput.model_validate(envelope)
+        if index == 0 or envelope.retry_from_call_id != saves[index - 1][0]:
+            raise PlanConflict("invalid_itinerary_retry", "语法修正链必须对应本轮最近失败调用。")
+        if saves[index - 1][1].get("status") != "error":
+            raise PlanConflict("invalid_itinerary_retry", "不能修正已成功保存的调用。")
+        return edit_arguments(syntax_candidate(index - 1), envelope.argument_edits)
+
     def reconstruct(request, boundary):
         if request.get("retry_from_call_id") is None:
             if (request.get("document") is None) == (request.get("patch") is None):
@@ -199,7 +216,15 @@ def repair_rejected_candidate(arguments, records, run_id, previous):
             raise PlanConflict(
                 "invalid_itinerary_retry", "只能修正本轮最近一次失败的save_itinerary调用。"
             )
-        rejected = json.loads(raw_arguments)
+        if parsed.argument_edits is not None:
+            try:
+                raw_arguments = syntax_candidate(boundary - 1)
+                raw_arguments = edit_arguments(raw_arguments, parsed.argument_edits)
+            except ValueError:
+                raise PlanConflict(
+                    "invalid_argument_edits", "修正位置必须对应原参数，不能重叠或越界。"
+                ) from None
+        rejected = parse_arguments(raw_arguments, call_id)
         if not isinstance(rejected, dict) or (
             rejected.get("base_version_id") != parsed.base_version_id
         ):
@@ -207,7 +232,9 @@ def repair_rejected_candidate(arguments, records, run_id, previous):
         base = reconstruct(rejected, boundary - 1)
         repaired = {
             **base,
-            "document": apply_patch(base["document"], parsed.patch),
+            "document": apply_patch(base["document"], parsed.patch)
+            if parsed.patch is not None
+            else base["document"],
             "change_reason": parsed.change_reason,
         }
         repaired.pop("patch", None)

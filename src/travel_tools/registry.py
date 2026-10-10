@@ -14,6 +14,7 @@ from uuid import uuid4
 from pydantic import AwareDatetime, Field, ValidationError
 
 from travel_tools.common import StrictModel, ToolFailure, ToolPayload, utc_now
+from travel_tools.query_reuse import snapshot_policy
 from travel_tools.scheduling import (
     SupplierScheduler,
     current_scheduler,
@@ -242,6 +243,7 @@ class ToolRegistry:
                         await report("running")
                         token = current_scheduler.set(self.scheduler)
                         refresh_token = force_refresh.set(refresh)
+                        snapshot_token = snapshot_policy.set((self.cache_scope, spec.cache_seconds))
 
                         async def report_supplier(stage, supplier, request_id):
                             await report(
@@ -253,6 +255,7 @@ class ToolRegistry:
                             result = await spec.handler(parsed)
                         finally:
                             force_refresh.reset(refresh_token)
+                            snapshot_policy.reset(snapshot_token)
                             current_scheduler.reset(token)
                             supplier_progress.reset(progress_token)
                         result = spec.output_type.model_validate(result.model_dump())
@@ -265,7 +268,16 @@ class ToolRegistry:
                             raise ToolFailure(
                                 "result_too_large", "Tool output exceeds the 2 MiB result limit."
                             )
-                        if spec.cache_seconds > 0 and _cacheable(data) and not self._closed:
+                        snapshot_reused = (data.get("coverage") or {}).get("cache_hit", False)
+                        if snapshot_reused:
+                            reuse = "cache"
+                            await report("reused")
+                        if (
+                            spec.cache_seconds > 0
+                            and _cacheable(data)
+                            and not self._closed
+                            and not snapshot_reused
+                        ):
                             self._cache[cache_key] = (
                                 time.monotonic() + spec.cache_seconds,
                                 deepcopy(data),

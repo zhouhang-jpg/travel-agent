@@ -55,12 +55,13 @@ async def test_initial_save_repairs_schema_then_time_conflict_with_small_patches
         assert saved["document"]["items"][-1]["start"].startswith("2026-10-13T19:00")
         assert saved["document"]["items"][0]["title"] == candidate["items"][0]["title"]
         raw = await service.facts.history(cid)
-        assert raw[1] == original.message
-        assert raw[3] == cost_fix.message
-        assert raw[5] == time_fix.message
-        assert json.loads(raw[2]["content"])["error"]["code"] == "invalid_itinerary"
-        assert json.loads(raw[4]["content"])["error"]["code"] == "itinerary_conflict"
-        assert json.loads(raw[6]["content"])["status"] == "ok"
+        original_messages = [m for m in raw if m["role"] != "system"]
+        assert original_messages[1] == original.message
+        assert original_messages[3] == cost_fix.message
+        assert original_messages[5] == time_fix.message
+        assert json.loads(original_messages[2]["content"])["error"]["code"] == "invalid_itinerary"
+        assert json.loads(original_messages[4]["content"])["error"]["code"] == "itinerary_conflict"
+        assert json.loads(original_messages[6]["content"])["status"] == "ok"
         assert model.requests[-1][1:] == raw[:-1]  # Complete provider messages stay intact.
         index = planning(model.requests[-1])["pending_itinerary"]
         canonical = await service.itineraries.current(cid)

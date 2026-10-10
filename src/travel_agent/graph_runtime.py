@@ -21,10 +21,12 @@ from travel_agent.checkpoints import FencedSaver
 from travel_agent.durable_storage import BudgetExceeded, StaleOwner
 from travel_agent.itineraries import ItineraryService, PlanConflict
 from travel_agent.itinerary_schema import SAVE_ITINERARY_TOOL
+from travel_agent.model_progress import model_phase
 from travel_agent.models import ModelError
 from travel_agent.prompts import ASK_USER_TOOL
 from travel_agent.runner import MODEL_FAILURE_MESSAGES, AgentRunner, _tool_result
 from travel_agent.runtime_context import CONTEXT_VERSION, build_policy_message
+from travel_agent.tool_arguments import ArgumentJSONError, parse_arguments
 
 
 class State(TypedDict, total=False):
@@ -119,6 +121,7 @@ class GraphRuntime:
         if lease.get("resume"):
             await self.hit("resume_advanced")
         key = f"{lease['run_id']}/model/{state['step']}"
+        progress = None
         try:
             payload = await self.facts.begin_effect(lease, key, "model", self.limits.max_steps)
             if payload is None:
@@ -128,6 +131,20 @@ class GraphRuntime:
                     lease, key, self.manifest["catalog"], planning, self.limits
                 )
                 await self.hit("context_saved_before_model")
+                effect = await self.facts.effect(key)
+                progress = {
+                    "type": "model_progress",
+                    "call_id": key,
+                    "request_number": (await self.facts.run(lease["run_id"])).model_requests,
+                    "phase": model_phase(history),
+                    "started_at": effect.attempt_log[-1]["started_at"],
+                    "attempt": effect.attempts,
+                }
+                await self.facts.emit(
+                    lease,
+                    key + f"/attempt/{effect.attempts}/model_started",
+                    {**progress, "status": "running"},
+                )
                 await self.hit("model_request_started")
                 model_started = time.monotonic()
                 reply = await self.model.complete(
@@ -141,6 +158,7 @@ class GraphRuntime:
                     "finish_reason": reply.finish_reason,
                     "usage": deepcopy(reply.usage),
                     "system": system,
+                    "public_progress": progress,
                     "cache_observation": {
                         **cache_observation(reply.usage),
                         "context_version": CONTEXT_VERSION,
@@ -154,7 +172,20 @@ class GraphRuntime:
         except BudgetExceeded as exc:
             return {"route": "final", "result": failure(str(exc))}
         except ModelError as exc:
+            if progress:
+                await self.facts.emit(
+                    lease,
+                    key + f"/attempt/{progress['attempt']}/model_finished",
+                    {**progress, "status": "error"},
+                )
             return {"route": "final", "result": failure(exc.code)}
+        progress = payload.get("public_progress")
+        if progress:
+            await self.facts.emit(
+                lease,
+                key + f"/attempt/{progress['attempt']}/model_finished",
+                {**progress, "status": "complete"},
+            )
         assistant = payload["message"]
         if payload["finish_reason"] not in {"stop", "tool_calls"}:
             return {"route": "final", "result": failure("model_incomplete")}
@@ -211,11 +242,9 @@ class GraphRuntime:
                         message="ask_user 必须单独调用；本组均未执行，请重新调用。",
                     )
                 elif name == "save_itinerary":
+                    arguments = None
                     try:
-                        arguments = json.loads(call["function"]["arguments"])
-                        if not isinstance(arguments, dict):
-                            raise ValueError("Tool arguments must be an object.")
-                        json.dumps(arguments, allow_nan=False)
+                        arguments = parse_arguments(call["function"]["arguments"], call["id"])
                         itinerary = await self.itineraries.prepare(lease, key, arguments)
                         raw = _tool_result(
                             call,
@@ -234,6 +263,17 @@ class GraphRuntime:
                                     for c in itinerary["document"]["costs"]
                                 ],
                             },
+                        )
+                    except ArgumentJSONError as exc:
+                        details = deepcopy(exc.details)
+                        if arguments and arguments.get("argument_edits") is not None:
+                            details["source_call_id"] = call["id"]
+                            details["argument_basis"] = "reconstructed_failed_candidate"
+                        raw = _tool_result(
+                            call,
+                            code="invalid_itinerary_json",
+                            message="保存参数JSON语法错误，请按位置修正；可用retry_from_call_id与argument_edits局部修正原字符串。",
+                            data={"json_error": details},
                         )
                     except PlanConflict as exc:
                         raw = _tool_result(

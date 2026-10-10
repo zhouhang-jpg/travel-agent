@@ -17,6 +17,7 @@ from travel_agent.runtime_context import (
     build_runtime_message,
     require_closed_tool_batch,
 )
+from travel_agent.tool_arguments import ArgumentJSONError, parse_arguments
 from travel_agent.tool_encoding import encode_tool_result
 from travel_tools.common import utc_now
 from travel_tools.registry import ErrorInfo, ToolRegistry, ToolResult
@@ -288,10 +289,14 @@ class AgentRunner:
     async def _execute(self, call: dict, *, progress=None) -> dict:
         name = call["function"]["name"]
         try:
-            arguments = json.loads(call["function"]["arguments"])
-            if not isinstance(arguments, dict):
-                raise ValueError
-            json.dumps(arguments, allow_nan=False)
+            arguments = parse_arguments(call["function"]["arguments"], call["id"])
+        except ArgumentJSONError as exc:
+            return _tool_result(
+                call,
+                code="invalid_arguments",
+                message="工具参数JSON语法错误，请依据位置修正。",
+                data={"json_error": exc.details},
+            )
         except (ValueError, TypeError):
             return _tool_result(
                 call, code="invalid_arguments", message="工具参数必须是有效的 JSON 对象。"

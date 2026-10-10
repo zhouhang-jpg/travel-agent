@@ -3,9 +3,9 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api, APIError } from './api';
 import { ItineraryPanel } from './ItineraryPanel';
-import { describeCalls, updateCalls } from './progress';
+import { describeCalls, describeModel, updateCalls } from './progress';
 import type { Calls } from './progress';
-import type { AgentEvent, Conversation, ConversationStatus, ConversationSummary, Health } from './types';
+import type { AgentEvent, Conversation, ConversationStatus, ConversationSummary, Health, ModelProgress } from './types';
 
 const STATUS: Record<ConversationStatus, string> = {
   idle: '新的旅程', running: '正在安排', waiting_user: '等待你的补充', completed: '已生成方案', error: '需要重试',
@@ -61,6 +61,16 @@ function savedConversation() {
   try { return localStorage.getItem('travel-agent.activeConversation'); } catch { return null; }
 }
 
+function ModelProgressLabel({ progress }: { progress: ModelProgress }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [progress.call_id, progress.attempt, progress.started_at]);
+  return <>{describeModel(progress, now)}</>;
+}
+
 export default function App() {
   const toolCalls = useRef<Record<string, Calls>>({});
   const [health, setHealth] = useState<Health | null>(null);
@@ -75,6 +85,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [streaming, setStreaming] = useState<Set<string>>(new Set());
   const [progress, setProgress] = useState<Record<string, string>>({});
+  const [modelProgress, setModelProgress] = useState<Record<string, ModelProgress | null>>({});
   const streams = useRef(new Set<string>());
   const eventCursors = useRef<Record<string, number>>({});
   const sendLock = useRef(false);
@@ -88,7 +99,11 @@ export default function App() {
   const inputDisabled = running || creating || loading || (!!activeId && !active) || unavailable;
   const error = activeId ? errors[activeId] : '';
 
+
   const updateSnapshot = useCallback((conversation: Conversation) => {
+    if ((conversation.event_seq ?? 0) >= (eventCursors.current[conversation.id] ?? 0)) {
+      setModelProgress((previous) => ({ ...previous, [conversation.id]: conversation.model_progress ?? null }));
+    }
     if (conversation.tool_progress && (conversation.event_seq ?? 0) >= (eventCursors.current[conversation.id] ?? 0)) {
       toolCalls.current[conversation.id] = conversation.tool_progress;
       setProgress((previous) => ({ ...previous, [conversation.id]: describeCalls(conversation.tool_progress!, TOOL_LABELS) }));
@@ -183,9 +198,12 @@ export default function App() {
     if (event.type === 'status' || event.type === 'done') {
       updateStatus(id, event.status);
       if (event.status === 'running') {
+        setModelProgress((previous) => ({ ...previous, [id]: null }));
         toolCalls.current[id] = {};
         setProgress((previous) => ({ ...previous, [id]: '正在理解你的需求，安排下一步…' }));
       }
+    } else if (event.type === 'model_progress') {
+      setModelProgress((previous) => ({ ...previous, [id]: event }));
     } else if (event.type === 'tool_started' || event.type === 'tool_progress' || event.type === 'tool_finished') {
       toolCalls.current[id] = updateCalls(toolCalls.current[id] ?? {}, event);
       setProgress((previous) => ({ ...previous, [id]: describeCalls(toolCalls.current[id], TOOL_LABELS) }));
@@ -360,7 +378,7 @@ export default function App() {
                 </div>}
               </div>
             </article>)}
-            {running && <div className="run-progress" role="status"><span className="loader" /><div><strong>{progress[activeId] ?? '正在继续安排你的旅程…'}</strong><p>执行期间请稍候，你可以切换会话或稍后回来。</p></div></div>}
+            {running && <div className="run-progress" role="status"><span className="loader" /><div><strong>{modelProgress[activeId]?.status === 'running' ? <ModelProgressLabel progress={modelProgress[activeId]!} /> : progress[activeId] ?? '正在继续安排你的旅程…'}</strong>{modelProgress[activeId]?.status === 'running' && Object.keys(toolCalls.current[activeId] ?? {}).length > 0 && <details><summary>查看查询与校验记录</summary><p>{describeCalls(toolCalls.current[activeId], TOOL_LABELS)}</p></details>}<p>执行期间请稍候，你可以切换会话或稍后回来。</p></div></div>}
           </section>}
         {(error || (active?.last_error && active.status === 'error')) && <div className="conversation-error" role="alert"><span>{error || active?.last_error?.message}</span><button onClick={retryConnection}>重新载入</button></div>}
         <div ref={bottom} />

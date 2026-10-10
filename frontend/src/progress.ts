@@ -1,6 +1,18 @@
-import type { AgentEvent } from './types';
+import type { AgentEvent, ModelProgress } from './types';
 
 export type Calls = Record<string, { name: string; status: string; reused: boolean }>;
+
+export function describeModel(progress: ModelProgress, now: number): string {
+  const labels: Record<ModelProgress['phase'], string> = {
+    deciding: '正在理解需求，判断下一步',
+    reviewing_results: '正在分析查询结果，规划或调整方案',
+    repairing_itinerary: '正在修正行程保存问题',
+    reviewing_saved_itinerary: '正在整理已保存方案，准备答复',
+  };
+  const started = Date.parse(progress.started_at);
+  const seconds = Number.isFinite(started) ? Math.max(0, Math.floor((now - started) / 1000)) : 0;
+  return `${labels[progress.phase]}…（本次已等待 ${seconds} 秒）`;
+}
 
 export function updateCalls(calls: Calls, event: AgentEvent): Calls {
   if (event.type !== 'tool_started' && event.type !== 'tool_progress' && event.type !== 'tool_finished') return calls;

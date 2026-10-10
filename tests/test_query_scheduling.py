@@ -283,7 +283,12 @@ async def test_120_parallel_calls_and_full_next_model_history(tmp_path):
         return Output(value=args.value)
 
     store, facts, lease, runtime, key = await batch(
-        tmp_path, [call(i) for i in range(120)], handler
+        # This checks full history under heavy SQLite progress writes, not a
+        # three-second wall-clock benchmark. Deadlines have separate coverage.
+        tmp_path,
+        [call(i) for i in range(120)],
+        handler,
+        deadline=10,
     )
 
     class Model:

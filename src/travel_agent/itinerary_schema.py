@@ -121,13 +121,29 @@ class ItineraryPatch(StrictModel):
     )
 
 
+class ArgumentEdit(StrictModel):
+    start: int = Field(ge=0, description="Zero-based Unicode character offset, not bytes.")
+    delete_count: int = Field(ge=0)
+    expected: str = Field(
+        description="Exact deleted text, empty for insertion. All offsets refer to the original."
+    )
+    insert: str
+
+    @model_validator(mode="after")
+    def exact_deletion(self):
+        if len(self.expected) != self.delete_count:
+            raise ValueError("expected length must equal delete_count")
+        return self
+
+
 class SaveItineraryInput(StrictModel):
     base_version_id: str | None = Field(default=None, description="Current published version ID.")
     retry_from_call_id: str | None = Field(
         default=None,
         min_length=1,
         description="To repair the latest failed save_itinerary in THIS run, copy its "
-        "tool result call_id and supply only patch plus change_reason. The server rebuilds "
+        "tool result call_id and supply patch or argument_edits plus change_reason. "
+        "The server rebuilds "
         "that rejected candidate from durable history and reruns all validation/protection "
         "checks. This also works before the first version exists; keep base_version_id "
         "equal to the current published version (null for first save). Never reference "
@@ -140,6 +156,18 @@ class SaveItineraryInput(StrictModel):
             "Preferred for local edits: send just changed fields/IDs "
             "rather than repeating the whole plan."
         ),
+    )
+    argument_edits: list[ArgumentEdit] | None = Field(
+        default=None,
+        min_length=1,
+        description="Alternative to document/patch for JSON syntax errors: reference the latest "
+        "failed save with retry_from_call_id and edit its candidate argument text by offsets. "
+        "If that failure was itself a syntax repair, earlier edits are reapplied first; "
+        "use positions from the latest json_error. "
+        "Use json_error.character_offset; line/column are one-based. Edits must not overlap. "
+        "The server applies only explicit edits, parses JSON, then reruns all validation. "
+        "For a missing closing brace at the end, insert it at character_count with delete_count=0 "
+        "and expected=empty string. No guessing or bypass of locks/sources.",
     )
     change_reason: str = Field(min_length=1)
     available_source_ids: list[Identifier] = Field(
@@ -154,10 +182,16 @@ class SaveItineraryInput(StrictModel):
 
     @model_validator(mode="after")
     def one_candidate(self):
-        if (self.document is None) == (self.patch is None):
-            raise ValueError("supply exactly one of document or patch")
-        if self.retry_from_call_id is not None and self.patch is None:
-            raise ValueError("retry_from_call_id requires patch")
+        if sum(v is not None for v in (self.document, self.patch, self.argument_edits)) != 1:
+            raise ValueError("supply exactly one of document, patch or argument_edits")
+        if (
+            self.retry_from_call_id is not None
+            and self.patch is None
+            and self.argument_edits is None
+        ):
+            raise ValueError("retry_from_call_id requires patch or argument_edits")
+        if self.argument_edits is not None and not self.retry_from_call_id:
+            raise ValueError("argument_edits requires retry_from_call_id")
         if self.patch is not None and not self.base_version_id and not self.retry_from_call_id:
             raise ValueError("patch requires current base_version_id")
         return self
@@ -177,6 +211,8 @@ SAVE_ITINERARY_TOOL = {
         "景点开放时段放opening_hours，不作为必须完整占用的fixed_commitments。"
         "保存失败时可用retry_from_call_id引用本轮最近失败结果的call_id，配合patch只修正"
         "出错条目，无需重写整份行程；首次失败也适用，全部校验和保护仍执行。"
+        "JSON语法错误可依据json_error的位置用argument_edits仅修正原参数字符串。"
+        "来源优先用available_source_ids导入；省略可选默认字段，避免重复抄写来源和描述。"
         "估计缓冲需明确标记。普通查询不必保存行程。",
         "parameters": SaveItineraryInput.model_json_schema(),
     },

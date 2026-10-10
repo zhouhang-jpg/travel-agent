@@ -98,8 +98,11 @@ class DurableService:
                     )
                 ).all()
                 calls = {}
+                model_progress = None
                 for row in rows:
                     event = row.payload
+                    if event["type"] == "model_progress":
+                        model_progress = event
                     if event["type"] in {"tool_started", "tool_progress", "tool_finished"}:
                         call_id = event.get("call_id", event["tool_name"])
                         status = event.get("status", "running")
@@ -115,6 +118,7 @@ class DurableService:
                             "reused": old.get("reused", False) or status == "reused",
                         }
                 public["tool_progress"] = calls
+                public["model_progress"] = model_progress
         current = await self.itineraries.current(conversation_id)
         public["itinerary"] = public_version(current) if current else None
         return public
