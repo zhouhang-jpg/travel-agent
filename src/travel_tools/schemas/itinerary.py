@@ -67,7 +67,11 @@ class ScheduledItem(TimeInterval):
     start_place_id: Identifier | None = None
     end_place_id: Identifier | None = None
     opening_hours_required: bool | None = None
-    commitment_ids: list[Identifier] = Field(default_factory=list)
+    commitment_ids: list[Identifier] = Field(
+        default_factory=list,
+        description="IDs of fixed commitments this item fully covers, from start to end. "
+        "An attraction's opening window is not a fixed commitment.",
+    )
     kind: Literal["activity", "transport", "work", "meal", "rest"] = "activity"
     description: str | None = None
     protection: Protection | None = None
@@ -80,7 +84,15 @@ class ScheduledItem(TimeInterval):
 class TransferEvidence(StrictModel):
     from_item_id: Identifier
     to_item_id: Identifier
-    minimum_minutes: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    minimum_minutes: float | None = Field(
+        default=None,
+        ge=0,
+        allow_inf_nan=False,
+        description="Travel minutes in the gap AFTER from_item.end and BEFORE to_item.start. "
+        "The gap must cover minimum_minutes plus all buffer minutes. "
+        "Travel already inside a transport item belongs in its travel_duration; "
+        "do not count that journey again in this gap.",
+    )
     sources: list[Source] = Field(default_factory=list)
     source_ids: list[Identifier] = Field(default_factory=list)
     duration_basis: Literal["queried", "estimate", "unknown"] = Field(
@@ -122,6 +134,11 @@ class OpeningEvidence(StrictModel):
 
 
 class FixedCommitment(TimeInterval):
+    """Time that must be fully reserved, linked by an item's commitment_ids.
+
+    Use opening_hours for an attraction's opening window, not fixed_commitments.
+    """
+
     id: Identifier
     title: str = Field(min_length=1)
     place_id: Identifier | None = None
@@ -160,8 +177,19 @@ class CostBasis(StrictModel):
 class PlannedCost(StrictModel):
     id: Identifier
     title: str = Field(min_length=1)
-    total: Money | None = None
-    kind: Literal["query_quote", "reference", "unknown"] = "unknown"
+    total: Money | None = Field(
+        default=None,
+        description="Total for all applicable travelers/rooms/nights. "
+        "null requires kind=unknown; a numeric total requires query_quote/reference "
+        "and at least one source or source_id. Unverified personal estimates may be "
+        "explained in basis.calculation with kind=unknown and total=null.",
+    )
+    kind: Literal["query_quote", "reference", "unknown"] = Field(
+        default="unknown",
+        description="unknown requires total=null. query_quote/reference require a numeric "
+        "total AND a source/source_id; a reference range without one total remains unknown. "
+        "Do not invent a supplier source for a personal estimate.",
+    )
     tax_basis: Literal["included", "excluded", "partial", "unknown"] = "unknown"
     fee_basis: Literal["included", "excluded", "partial", "unknown"] = "unknown"
     sources: list[Source] = Field(default_factory=list)

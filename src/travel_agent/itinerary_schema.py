@@ -123,6 +123,16 @@ class ItineraryPatch(StrictModel):
 
 class SaveItineraryInput(StrictModel):
     base_version_id: str | None = Field(default=None, description="Current published version ID.")
+    retry_from_call_id: str | None = Field(
+        default=None,
+        min_length=1,
+        description="To repair the latest failed save_itinerary in THIS run, copy its "
+        "tool result call_id and supply only patch plus change_reason. The server rebuilds "
+        "that rejected candidate from durable history and reruns all validation/protection "
+        "checks. This also works before the first version exists; keep base_version_id "
+        "equal to the current published version (null for first save). Never reference "
+        "an older run or a successful save. Omitted sources/releases are inherited.",
+    )
     document: ItineraryDocument | None = None
     patch: ItineraryPatch | None = Field(
         default=None,
@@ -146,7 +156,9 @@ class SaveItineraryInput(StrictModel):
     def one_candidate(self):
         if (self.document is None) == (self.patch is None):
             raise ValueError("supply exactly one of document or patch")
-        if self.patch is not None and not self.base_version_id:
+        if self.retry_from_call_id is not None and self.patch is None:
+            raise ValueError("retry_from_call_id requires patch")
+        if self.patch is not None and not self.base_version_id and not self.retry_from_call_id:
             raise ValueError("patch requires current base_version_id")
         return self
 
@@ -160,7 +172,12 @@ SAVE_ITINERARY_TOOL = {
         "修改时提供当前base_version_id，保持稳定条目ID和未涉及安排，"
         "保留用户条件和锁定/自报已订安排，锁定需引用真实用户原话。"
         "来源与查询条件应来自已查结果，费用total为全体人数/房间/间夜的归一化总额；"
-        "未知费用为null，估计缓冲需明确标记。普通查询不必保存行程。",
+        "未知费用为kind=unknown且total=null；reference/query_quote金额必须有来源。"
+        "转场时间只计算前项结束到后项开始的间隙，已在交通块内的行驶时长不要重复计入。"
+        "景点开放时段放opening_hours，不作为必须完整占用的fixed_commitments。"
+        "保存失败时可用retry_from_call_id引用本轮最近失败结果的call_id，配合patch只修正"
+        "出错条目，无需重写整份行程；首次失败也适用，全部校验和保护仍执行。"
+        "估计缓冲需明确标记。普通查询不必保存行程。",
         "parameters": SaveItineraryInput.model_json_schema(),
     },
 }

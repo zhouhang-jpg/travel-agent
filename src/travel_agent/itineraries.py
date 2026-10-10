@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from sqlalchemy import JSON, Integer, String, select
 from sqlalchemy.orm import Mapped, mapped_column
 
-from travel_agent.itinerary_schema import ItineraryDocument, SaveItineraryInput
+from travel_agent.itinerary_schema import ItineraryDocument, ItineraryPatch, SaveItineraryInput
 from travel_agent.storage import Base
 from travel_agent.tool_encoding import decode_tool_result
 from travel_tools.common import Source, utc_now
@@ -62,6 +62,15 @@ def public_version(row, *, internal=False):
         "change_reason": row.reason,
     }
     if internal:
+        # Full before/after values remain in durable tool history and the public
+        # version. The model index already carries the complete canonical document.
+        result["diff"] = {
+            "changes": [
+                {k: deepcopy(v) for k, v in change.items() if k not in {"before", "after"}}
+                for change in row.diff.get("changes", [])
+            ],
+            "cost_deltas": deepcopy(row.diff.get("cost_deltas", [])),
+        }
         return result
 
     def readable(value):
@@ -114,7 +123,7 @@ def apply_patch(document, patch):
 
     for section in ("items", "lodging", "costs", "requirements"):
         removed = set(getattr(patch, "remove_" + section))
-        rows = {row["id"]: row for row in result[section] if row["id"] not in removed}
+        rows = {row["id"]: row for row in result.get(section, []) if row["id"] not in removed}
         edits = getattr(patch, section)
         if any(not isinstance(row.get("id"), str) for row in edits):
             raise PlanConflict("invalid_itinerary_patch", "局部修改条目必须使用稳定id。")
@@ -143,6 +152,72 @@ def apply_patch(document, patch):
     for field, value in patch.set_fields.items():
         result[field] = merge(result.get(field), value)
     return result
+
+
+def repair_rejected_candidate(arguments, records, run_id, previous):
+    """Rebuild only this run's latest rejected save; never trust a client snapshot.
+
+    Every repair is reconstructed from committed raw calls/results. Failed initial
+    candidates need not pass schema validation until their patch has been applied.
+    """
+    saves = []
+    calls = {}
+    for record in records:
+        if not record.id.startswith(run_id + "/model/"):
+            continue
+        message = record.payload
+        if message.get("role") == "assistant":
+            calls = {c["id"]: c["function"] for c in message.get("tool_calls") or []}
+        elif message.get("role") == "tool":
+            function = calls.get(message.get("tool_call_id"), {})
+            if function.get("name") != "save_itinerary":
+                continue
+            result = decode_tool_result(message["content"])
+            saves.append((message["tool_call_id"], result, function["arguments"]))
+
+    def reconstruct(request, boundary):
+        if request.get("retry_from_call_id") is None:
+            if (request.get("document") is None) == (request.get("patch") is None):
+                raise PlanConflict(
+                    "invalid_itinerary_retry", "失败调用没有唯一可复用的document或patch。"
+                )
+            if isinstance(request.get("document"), dict) and request.get("patch") is None:
+                return deepcopy(request)
+            if previous is None or request.get("base_version_id") != previous.id:
+                raise PlanConflict("invalid_itinerary_retry", "失败候选没有可复用的当前版本。")
+            parsed_patch = ItineraryPatch.model_validate(request.get("patch"))
+            return {
+                **deepcopy(request),
+                "patch": None,
+                "document": apply_patch(previous.document, parsed_patch),
+            }
+        parsed = SaveItineraryInput.model_validate(request)
+        if boundary == 0:
+            raise PlanConflict("invalid_itinerary_retry", "本轮没有已提交的失败保存可供修正。")
+        call_id, result, raw_arguments = saves[boundary - 1]
+        if call_id != parsed.retry_from_call_id or result.get("status") != "error":
+            raise PlanConflict(
+                "invalid_itinerary_retry", "只能修正本轮最近一次失败的save_itinerary调用。"
+            )
+        rejected = json.loads(raw_arguments)
+        if not isinstance(rejected, dict) or (
+            rejected.get("base_version_id") != parsed.base_version_id
+        ):
+            raise PlanConflict("invalid_itinerary_retry", "失败候选与当前版本依据不一致。")
+        base = reconstruct(rejected, boundary - 1)
+        repaired = {
+            **base,
+            "document": apply_patch(base["document"], parsed.patch),
+            "change_reason": parsed.change_reason,
+        }
+        repaired.pop("patch", None)
+        repaired.pop("retry_from_call_id", None)
+        for field in ("available_source_ids", "release_protections"):
+            if field in request:
+                repaired[field] = deepcopy(request[field])
+        return repaired
+
+    return reconstruct(arguments, len(saves))
 
 
 def source_key(source):
@@ -603,7 +678,11 @@ class ItineraryService:
             for r in records
             if r.payload.get("role") == "user"
         }
-        prepared = deepcopy(arguments)
+        prepared = (
+            repair_rejected_candidate(arguments, records, lease["run_id"], previous)
+            if arguments.get("retry_from_call_id") is not None
+            else deepcopy(arguments)
+        )
         bank = source_bank([r.payload for r in records])
         catalog = available_sources(bank)
         imports = prepared.get("available_source_ids", [])
