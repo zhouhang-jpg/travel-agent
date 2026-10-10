@@ -225,6 +225,10 @@ class OpenAICompatibleModel:
             return
         if status in {401, 403}:
             raise ModelError("authentication_error", "Model authentication or access was rejected.")
+        if status == 402:
+            raise ModelError(
+                "insufficient_balance", "Model account balance or payment is unavailable."
+            )
         if status == 429:
             raise ModelError("rate_limited", "The model service rate limit was reached.", True)
         if status >= 500:

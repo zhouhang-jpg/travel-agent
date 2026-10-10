@@ -23,6 +23,44 @@ class TimeInterval(StrictModel):
         return self
 
 
+class UserReference(StrictModel):
+    message_id: Identifier
+    quote: str = Field(min_length=1, description="Exact quote from a raw user message.")
+
+
+class Protection(StrictModel):
+    state: Literal["locked", "user_reported_booked"]
+    user_reference: UserReference
+
+
+class BufferAllowance(StrictModel):
+    kind: Literal["station_entry", "security", "connection", "admission", "meal", "rest", "other"]
+    minutes: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    basis: Literal["queried", "estimate", "unknown"] = Field(
+        default="unknown",
+        description=(
+            "queried requires sources; estimate needs explanation; unknown requires null minutes."
+        ),
+    )
+    explanation: str = Field(min_length=1)
+    sources: list[Source] = Field(default_factory=list)
+    source_ids: list[Identifier] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def honest_buffer(self):
+        if self.basis == "unknown" and self.minutes is not None:
+            raise ValueError("unknown buffers must have null minutes")
+        if self.basis != "unknown" and self.minutes is None:
+            raise ValueError("known buffers require minutes")
+        if self.basis == "queried" and not (self.sources or self.source_ids):
+            raise ValueError("queried buffers require sources")
+        return self
+
+
+class TravelDurationEvidence(BufferAllowance):
+    kind: Literal["other"] = "other"
+
+
 class ScheduledItem(TimeInterval):
     id: Identifier
     title: str = Field(min_length=1)
@@ -30,6 +68,13 @@ class ScheduledItem(TimeInterval):
     end_place_id: Identifier | None = None
     opening_hours_required: bool | None = None
     commitment_ids: list[Identifier] = Field(default_factory=list)
+    kind: Literal["activity", "transport", "work", "meal", "rest"] = "activity"
+    description: str | None = None
+    protection: Protection | None = None
+    travel_duration: TravelDurationEvidence | None = Field(
+        default=None,
+        description="Total travel time for a transport block, queried/estimated/unknown.",
+    )
 
 
 class TransferEvidence(StrictModel):
@@ -38,11 +83,23 @@ class TransferEvidence(StrictModel):
     minimum_minutes: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     sources: list[Source] = Field(default_factory=list)
     source_ids: list[Identifier] = Field(default_factory=list)
+    duration_basis: Literal["queried", "estimate", "unknown"] = Field(
+        default="queried",
+        description=(
+            "Queried duration requires sources. Estimates may instead use duration_explanation."
+        ),
+    )
+    duration_explanation: str | None = None
+    buffers: list[BufferAllowance] = Field(default_factory=list)
+    buffers_complete: bool | None = None
 
     @model_validator(mode="after")
     def sourced_duration(self) -> "TransferEvidence":
         if self.minimum_minutes is not None and not (self.sources or self.source_ids):
-            raise ValueError("a known transfer duration requires a source")
+            if self.duration_basis != "estimate" or not self.duration_explanation:
+                raise ValueError(
+                    "queried duration requires sources; estimate requires duration_explanation"
+                )
         return self
 
 
@@ -81,12 +138,23 @@ class LodgingStay(StrictModel):
     check_out: date
     destination_id: Identifier | None = None
     hotel_id: Identifier | None = None
+    title: str | None = None
+    protection: Protection | None = None
 
     @model_validator(mode="after")
     def ordered(self) -> "LodgingStay":
         if self.check_out <= self.check_in:
             raise ValueError("check_out must be after check_in")
         return self
+
+
+class CostBasis(StrictModel):
+    travelers: int | None = Field(default=None, ge=1)
+    rooms: int | None = Field(default=None, ge=1)
+    nights: int | None = Field(default=None, ge=1)
+    calculation: str = Field(
+        min_length=1, description="Total for the entire applicable party/stay."
+    )
 
 
 class PlannedCost(StrictModel):
@@ -98,6 +166,9 @@ class PlannedCost(StrictModel):
     fee_basis: Literal["included", "excluded", "partial", "unknown"] = "unknown"
     sources: list[Source] = Field(default_factory=list)
     source_ids: list[Identifier] = Field(default_factory=list)
+    basis: CostBasis | None = None
+    item_ids: list[Identifier] = Field(default_factory=list)
+    lodging_ids: list[Identifier] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def honest_cost(self) -> "PlannedCost":
@@ -131,7 +202,13 @@ class ValidateItineraryInput(StrictModel):
 
     @model_validator(mode="after")
     def consistent_references(self) -> "ValidateItineraryInput":
-        for entry in [*self.transfers, *self.opening_hours, *self.costs]:
+        for entry in [
+            *self.transfers,
+            *self.opening_hours,
+            *self.costs,
+            *(buffer for transfer in self.transfers for buffer in transfer.buffers),
+            *(item.travel_duration for item in self.items if item.travel_duration is not None),
+        ]:
             if any(source_id not in self.source_catalog for source_id in entry.source_ids):
                 raise ValueError("source_ids must reference existing source_catalog entries")
             if entry.source_ids:

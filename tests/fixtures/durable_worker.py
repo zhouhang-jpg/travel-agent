@@ -39,6 +39,28 @@ async def main():
                 name, arguments = "probe", {}
             elif options["scenario"] == "budget":
                 name, arguments = "probe", {}
+            elif options["scenario"] == "plan" and tool_count == 0:
+                name, arguments = (
+                    "save_itinerary",
+                    {
+                        "change_reason": "独立进程版本恢复验证",
+                        "document": {
+                            "title": "恢复测试方案",
+                            "planning_window": {
+                                "start": "2026-10-12T08:00:00+08:00",
+                                "end": "2026-10-12T18:00:00+08:00",
+                            },
+                            "items": [
+                                {
+                                    "id": "walk",
+                                    "title": "待核实散步候选",
+                                    "start": "2026-10-12T10:00:00+08:00",
+                                    "end": "2026-10-12T11:00:00+08:00",
+                                }
+                            ],
+                        },
+                    },
+                )
             else:
                 return ModelReply(
                     {

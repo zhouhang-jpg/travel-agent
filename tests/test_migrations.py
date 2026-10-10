@@ -17,7 +17,7 @@ def test_migration_upgrade_persistence_and_downgrade_in_isolated_database(tmp_pa
     command.upgrade(config, "head")
     command.upgrade(config, "head")
     with sqlite3.connect(database) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0002",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0003",)
         columns = {row[1] for row in connection.execute("PRAGMA table_info(conversations)")}
         assert columns == set(Conversation.__table__.columns.keys())
         assert "ix_conversations_updated_at" in {

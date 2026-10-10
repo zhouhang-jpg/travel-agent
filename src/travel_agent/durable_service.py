@@ -8,6 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from travel_agent.durable_storage import DurableStore, Head, Question, StaleOwner
 from travel_agent.graph_runtime import GraphRuntime, failure
+from travel_agent.itineraries import ItineraryService, public_version
 from travel_agent.service import ModelNotConfigured
 from travel_agent.storage import Conversation, ConversationNotFound, public_view
 
@@ -17,6 +18,7 @@ class DurableService:
         self.store = store
         self.facts = DurableStore(store)
         self.model = model
+        self.itineraries = ItineraryService(self.facts)
         self.runtime = GraphRuntime(self.facts, model, registry, limits, saver, failpoint=failpoint)
         self.tasks = set()
         self.followers = set()
@@ -82,6 +84,8 @@ class DurableService:
                 public["question_id"] = (
                     question.id if question and question.status == "ready" else None
                 )
+        current = await self.itineraries.current(conversation_id)
+        public["itinerary"] = public_version(current) if current else None
         return public
 
     async def list(self):

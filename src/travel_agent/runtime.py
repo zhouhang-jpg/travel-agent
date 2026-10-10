@@ -13,6 +13,7 @@ class RuntimeService:
     def __init__(self, legacy, durable, default_engine):
         self.legacy, self.durable, self.default_engine = legacy, durable, default_engine
         self.store = legacy.store
+        self.itineraries = durable.itineraries
 
     @property
     def tasks(self):

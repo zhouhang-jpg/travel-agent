@@ -20,6 +20,9 @@ HistoryCheckpoint = Callable[[list[dict]], Awaitable[None]]
 
 # Only locally authored explanations may cross the public API boundary.
 MODEL_FAILURE_MESSAGES = {
+    "insufficient_balance": (
+        "模型账户余额不足或付款状态不可用，请检查账户并充值后重试。已保存方案和历史仍保留。"
+    ),
     "output_truncated": "模型服务达到自身输出长度上限，回答被截断。记录已保留，可发送“继续”重试。",
     "timeout": "模型请求超时，查询记录已保留，可以稍后发送“继续”重试。",
     "connection_error": "暂时无法连接模型服务，查询记录已保留，请稍后继续。",

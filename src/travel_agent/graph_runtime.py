@@ -15,10 +15,13 @@ from zoneinfo import ZoneInfo
 from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 from langgraph.types import Command, interrupt
+from pydantic import ValidationError
 
 from travel_agent import prompts
 from travel_agent.checkpoints import FencedSaver
 from travel_agent.durable_storage import BudgetExceeded, StaleOwner
+from travel_agent.itineraries import ItineraryService, PlanConflict
+from travel_agent.itinerary_schema import SAVE_ITINERARY_TOOL
 from travel_agent.models import ModelError
 from travel_agent.prompts import ASK_USER_TOOL, build_system_message
 from travel_agent.runner import MODEL_FAILURE_MESSAGES, AgentRunner, _tool_result
@@ -62,12 +65,25 @@ class GraphRuntime:
         self.facts, self.model, self.registry = facts, model, registry
         self.limits, self.saver, self.failpoint = limits, saver, failpoint
         self.executor = AgentRunner(model, registry, limits)
+        self.itineraries = ItineraryService(facts)
         self.manifest = {
             "engine": "langgraph-v1",
             "state_version": 1,
             "prompt_version": sha256(inspect.getsource(prompts).encode()).hexdigest(),
-            "tools": [deepcopy(ASK_USER_TOOL), *registry.model_definitions()],
-            "catalog": registry.catalog(),
+            "tools": [
+                deepcopy(ASK_USER_TOOL),
+                deepcopy(SAVE_ITINERARY_TOOL),
+                *registry.model_definitions(),
+            ],
+            "catalog": [
+                *registry.catalog(),
+                {
+                    "name": "save_itinerary",
+                    "availability": "ready",
+                    "reason": None,
+                    "scope": "current_conversation",
+                },
+            ],
             "model": {
                 name: getattr(model, name, None)
                 for name in ("model", "provider", "thinking", "reasoning_effort", "timeout_seconds")
@@ -95,12 +111,26 @@ class GraphRuntime:
                 system = build_system_message(
                     datetime.now(ZoneInfo(lease["timezone"])),
                     lease["timezone"],
-                    self.registry.catalog(),
+                    self.manifest["catalog"],
+                )
+                planning = await self.itineraries.context(lease["conversation_id"])
+                current_run = await self.facts.run(lease["run_id"])
+                planning["run_budget"] = {
+                    "model_requests_used_including_this_request": current_run.model_requests,
+                    "model_requests_remaining_after_this": max(
+                        0, self.limits.max_steps - current_run.model_requests
+                    ),
+                    "active_seconds_committed": current_run.active_seconds,
+                    "max_active_seconds": self.limits.max_run_seconds,
+                }
+                system["content"] += (
+                    "\n【当前行程与原话引用，仅作本会话索引，完整历史仍保留】\n"
+                    + json.dumps(planning, ensure_ascii=False)
                 )
                 await self.hit("model_request_started")
                 reply = await self.model.complete(
                     messages=[system, *history],
-                    tools=[deepcopy(ASK_USER_TOOL), *self.registry.model_definitions()],
+                    tools=deepcopy(self.manifest["tools"]),
                 )
                 await self.hit("model_returned_before_save")
                 payload = {
@@ -149,15 +179,70 @@ class GraphRuntime:
             )
             payload = await self.facts.begin_effect(lease, key, "tool", self.limits.max_steps)
             if payload is None:
-                raw = (
-                    _tool_result(
+                itinerary = None
+                if mixed:
+                    raw = _tool_result(
                         call,
                         code="ask_user_must_be_alone",
                         message="ask_user 必须单独调用；本组均未执行，请重新调用。",
                     )
-                    if mixed
-                    else await self.executor._execute(call)
-                )
+                elif name == "save_itinerary":
+                    try:
+                        arguments = json.loads(call["function"]["arguments"])
+                        if not isinstance(arguments, dict):
+                            raise ValueError("Tool arguments must be an object.")
+                        json.dumps(arguments, allow_nan=False)
+                        itinerary = await self.itineraries.prepare(lease, key, arguments)
+                        raw = _tool_result(
+                            call,
+                            data={
+                                "version_id": itinerary["id"],
+                                "state": "draft_until_successful_delivery",
+                                "review": itinerary["review"],
+                                "diff": itinerary["diff"],
+                                "cost_treatment": [
+                                    {
+                                        "id": c["id"],
+                                        "kind": c["kind"],
+                                        "tax_basis": c["tax_basis"],
+                                        "fee_basis": c["fee_basis"],
+                                    }
+                                    for c in itinerary["document"]["costs"]
+                                ],
+                            },
+                        )
+                    except PlanConflict as exc:
+                        raw = _tool_result(
+                            call,
+                            code=exc.code,
+                            message=exc.message,
+                            data={"conflicts": exc.details},
+                        )
+                    except ValidationError as exc:
+                        locations = [
+                            {
+                                "field": ".".join(str(part) for part in e["loc"]),
+                                "type": e["type"],
+                                "reason": e["msg"]
+                                if e["type"] in {"value_error", "missing", "extra_forbidden"}
+                                else "请依据schema检查字段类型和允许值",
+                            }
+                            for e in exc.errors(include_input=False, include_context=False)
+                        ]
+                        raw = _tool_result(
+                            call,
+                            code="invalid_itinerary",
+                            message="行程字段或引用不符合schema，请修正标明的字段。",
+                            data={"invalid_fields": locations},
+                        )
+                    except (ValueError, TypeError):
+                        raw = _tool_result(
+                            call,
+                            code="invalid_itinerary",
+                            message="行程或引用格式不完整，请依据工具schema修正；普通查询无需保存。",
+                        )
+                else:
+                    raw = await self.executor._execute(call)
                 await self.hit("tool_returned_before_save")
                 result = json.loads(raw["content"])
                 question = None
@@ -167,7 +252,7 @@ class GraphRuntime:
                         "message": result["data"]["message"],
                     }
                 payload = {"raw": raw, "status": result["status"], "question": question}
-                await self.facts.commit_effect(lease, key, payload, raw, question)
+                await self.facts.commit_effect(lease, key, payload, raw, question, itinerary)
                 await self.hit("question_draft" if question else "tool_saved_before_checkpoint")
             await self.facts.emit(
                 lease,

@@ -74,6 +74,29 @@ async def validate_itinerary(request: ValidateItineraryInput) -> ValidateItinera
             add("overlaps", "pass", "Scheduled intervals do not overlap.")
 
     transfer_map = defaultdict(list)
+    for item in items:
+        duration = item.travel_duration
+        if duration is None:
+            continue
+        available = (_utc(item.end) - _utc(item.start)).total_seconds() / 60
+        if duration.minutes is None:
+            add("transfers", "unknown", "Travel duration inside this block is unknown.", item.id)
+        elif available < duration.minutes:
+            add(
+                "transfers",
+                "fail",
+                "Transport block is shorter than its supplied travel time.",
+                item.id,
+            )
+        else:
+            add(
+                "transfers",
+                "pass" if duration.basis == "queried" else "unknown",
+                "Transport block covers supplied travel time; estimated duration remains uncertain."
+                if duration.basis != "queried"
+                else "Transport block covers supplied queried duration.",
+                item.id,
+            )
     for evidence in request.transfers:
         transfer_map[(evidence.from_item_id, evidence.to_item_id)].append(evidence)
     if len(items) < 2:
@@ -97,12 +120,32 @@ async def validate_itinerary(request: ValidateItineraryInput) -> ValidateItinera
                 *ids,
             )
         elif evidence:
-            required = evidence[0].minimum_minutes
+            supplied = evidence[0]
+            required = supplied.minimum_minutes
+            buffers = supplied.buffers
+            if required is not None:
+                required += sum(buffer.minutes or 0 for buffer in buffers)
             if required is not None and available >= required:
-                add("transfers", "pass", "The gap meets the supplied minimum transfer time.", *ids)
+                uncertain = (
+                    supplied.duration_basis != "queried"
+                    or supplied.buffers_complete is False
+                    or any(buffer.basis != "queried" for buffer in buffers)
+                )
+                add(
+                    "transfers",
+                    "unknown" if uncertain else "pass",
+                    "The gap covers supplied travel and buffers; estimates or buffer scope remain "
+                    "uncertain."
+                    if uncertain
+                    else "The gap meets supplied travel and buffer time.",
+                    *ids,
+                )
             else:
                 add(
-                    "transfers", "fail", "The gap is shorter than the supplied transfer time.", *ids
+                    "transfers",
+                    "fail",
+                    "The gap is shorter than supplied travel plus buffers.",
+                    *ids,
                 )
         elif previous.end_place_id is not None and (
             previous.end_place_id == following.start_place_id
@@ -320,6 +363,10 @@ async def validate_itinerary(request: ValidateItineraryInput) -> ValidateItinera
     for evidence in [*request.transfers, *request.opening_hours, *request.costs]:
         for source in evidence.sources:
             unique_sources[source.model_dump_json()] = source
+    for transfer in request.transfers:
+        for buffer in transfer.buffers:
+            for source in buffer.sources:
+                unique_sources[source.model_dump_json()] = source
     return ValidateItineraryOutput(
         status=result_status,
         checks=checks,

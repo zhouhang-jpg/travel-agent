@@ -125,3 +125,21 @@ async def replay_events(conversation_id: str, request: Request, after: int = 0):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.get("/conversations/{conversation_id}/itineraries")
+async def itinerary_versions(conversation_id: str, request: Request):
+    service = request.app.state.agent
+    try:
+        await service.get(conversation_id)
+    except ConversationNotFound:
+        raise HTTPException(404, "Conversation not found.") from None
+    return await service.itineraries.list(conversation_id)
+
+
+@router.get("/conversations/{conversation_id}/itineraries/{version_id}")
+async def itinerary_version(conversation_id: str, version_id: str, request: Request):
+    version = await request.app.state.agent.itineraries.get(conversation_id, version_id)
+    if version is None:
+        raise HTTPException(404, "Itinerary version not found.")
+    return version

@@ -138,6 +138,7 @@ async def test_generic_provider_does_not_receive_deepseek_parameters():
     ("status", "code", "retryable"),
     [
         (401, "authentication_error", False),
+        (402, "insufficient_balance", False),
         (403, "authentication_error", False),
         (429, "rate_limited", True),
         (503, "service_unavailable", True),

@@ -12,6 +12,7 @@ from uuid import uuid4
 from sqlalchemy import JSON, Float, Integer, String, select, update
 from sqlalchemy.orm import Mapped, mapped_column
 
+from travel_agent.itineraries import abandon_drafts, publish_version, stage_version
 from travel_agent.storage import Base, Conversation, ConversationBusy, ConversationNotFound
 from travel_tools.common import utc_now
 
@@ -382,13 +383,20 @@ class DurableStore:
             ]
             return None
 
-    async def commit_effect(self, lease, key, payload, raw, question=None):
+    async def commit_effect(self, lease, key, payload, raw, question=None, itinerary=None):
         async with self.guarded(lease) as (session, head, conversation, run):
             effect = await session.get(Effect, key)
             if effect.status == "complete":
                 return
             effect.status, effect.payload = "complete", deepcopy(payload)
             await self.append_raw(session, head, conversation, key, raw)
+            if itinerary:
+                await stage_version(session, head.id, run.id, key, head.journal_seq, itinerary)
+            elif raw.get("role") == "tool" and payload.get("status") == "error":
+                import json
+
+                if json.loads(raw["content"]).get("tool_name") == "save_itinerary":
+                    await abandon_drafts(session, head.id, run.id)
             if question:
                 session.add(
                     Question(
@@ -428,6 +436,22 @@ class DurableStore:
                         session, head, conversation, f"{run.id}/uncompleted/{index}", raw
                     )
             run.result = deepcopy(result)
+            version = await publish_version(
+                session, head.id, run.id, result["status"] == "completed"
+            )
+            if version:
+                await self.event(
+                    session,
+                    head,
+                    conversation,
+                    run,
+                    version.id + "/published",
+                    {
+                        "type": "itinerary_updated",
+                        "version_id": version.id,
+                        "revision": version.revision,
+                    },
+                )
             await self.event(
                 session,
                 head,
