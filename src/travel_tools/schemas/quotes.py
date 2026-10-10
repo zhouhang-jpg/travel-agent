@@ -45,7 +45,7 @@ class TransportSearchInput(StrictModel):
 
 
 class SearchFlightsInput(TransportSearchInput):
-    provider: Literal["flyai", "ceair"] = "flyai"
+    provider: Literal["flyai", "ceair", "csair"] = "flyai"
     cabin: Literal["economy", "premium_economy", "business", "first"] | None = None
     nonstop_only: bool = False
     tax_view: Literal["included", "excluded"] = "included"

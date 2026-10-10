@@ -16,7 +16,7 @@ Codex 标签页、桌面自动化工具、个人浏览器档案或已保存的�
 降级，返回 `coverage.fallback_from/fallback_reason` 和警告。显式 `provider=12306` 不自动
 降级；未开售、日期错误、参数错误和无结果也不自动降级。原有 `juhe`、`jisu` 保留显式配置。
 
-浏览器在一个独立工作线程中运行；Windows 专用 Proactor 事件循环支持子进程，避免 Uvicorn
+浏览器使用有界独立线程池（默认最多2项），来源另有限流；Windows 专用 Proactor 事件循环支持子进程，避免 Uvicorn
 Selector 循环限制。每次使用全新上下文，保留页面自身资源行为，退出、超时或异常均关闭浏览器
 和驱动。应用关闭时停止接受新查询并回收线程。`BROWSER_QUERY_TIMEOUT_SECONDS=18`，实际
 预算不超过外层工具时限的80%，为关闭/降级留时间；这里限制时间，不限制工具调用次数。
@@ -34,6 +34,7 @@ Selector 循环限制。每次使用全新上下文，保留页面自身资源�
 | `search_trains` / FlyAI | 显式 `provider=flyai` 或配置的降级；按直达/车次/真实站点与城市证据过滤 | CLI最多10项，无分页；每段站点与原始时间保留，币种/库存缺失不能补造 |
 | `search_flights` / FlyAI | 默认快速候选，`nonstop_only`、`cabin`、`flight_numbers` | 保留每段机场代码、航站楼、原始时间、营销航司；无偏移时间不强加时区；营销不等于承运 |
 | `search_flights` / 东航 | `provider=ceair`，`tax_view=included/excluded`，按具体航班核实；城市或 `provider_location_id` 的IATA集合 | 当前核实经济/超级经济舱，官网不覆盖全市场；机场必须逐项对齐；本地时刻保留，境外时区未知不猜；共享标签缺失不证明无共享；行李/退改/最终库存未知 |
+| `search_flights` / 南航 | `provider=csair`，国内单成人单程，默认经济舱；按可见舱等和实际机场筛选 | 初始可见列表，不穷尽市场/滚动；日期和计价人数验证；税费/ISO币种/余票/缺失直飞关系未知。独立浏览器与真实工具验证见[来源记录](flight-source-validation.md) |
 
 东航提供一组国内城市/机场常用名别名，名称未覆盖时明确报错，也可传可核实的IATA代码。
 未知的实际机场别名不能按查询城市硬填机场代码。官网支持范围随页面结果而定，不承诺所有

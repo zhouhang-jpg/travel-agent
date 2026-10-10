@@ -9,6 +9,7 @@ from travel_tools.providers import flyai
 from travel_tools.providers.browser_runtime import BrowserQueryRuntime
 from travel_tools.providers.bus365 import Bus365Adapter
 from travel_tools.providers.ceair import CeairAdapter
+from travel_tools.providers.csair import CsairAdapter
 from travel_tools.providers.jisu_coach import JisuCoachAdapter
 from travel_tools.providers.juhe_train import JuheTrainAdapter
 from travel_tools.providers.rail12306 import Rail12306Adapter
@@ -83,6 +84,7 @@ def register_quote_tools(
         registry.add_closer(runtime.close)
         train_adapters["12306"] = Rail12306Adapter(runtime, client)
         flight_adapters["ceair"] = CeairAdapter(runtime)
+        flight_adapters["csair"] = CsairAdapter(runtime)
     flights = FlightRouter(flight_adapters) if flight_adapters else None
     if flights and "flyai" in flight_adapters:
         flights.description += " " + _FLYAI_LIMITS

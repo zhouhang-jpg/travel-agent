@@ -62,6 +62,9 @@ class FlightRouter:
             "provider=ceair可选核实东航官网列表，支持城市或provider_location_id中的IATA集合如SHA,PVG。"
             "flight_numbers按具体航班筛选；tax_view选included/excluded。"
             "官网非全市场覆盖，只核实经济/超级经济舱的展示价，不将税前/含税价直接比较。"
+            "provider=csair查南航国内单成人列表，默认经济舱；可见舱等匹配，城市机场集合保留。"
+            "南航列表税费/ISO币种和直飞证据可能未知，不能声称已满足含税价或直飞核实。"
+            "按需求自主选已配置来源，不强制查所有网站；有限来源无结果不等于全市场无航班。"
             "营销航司不等于实际承运人，行李/退改/最终库存未知时保留；不预订。"
         )
 

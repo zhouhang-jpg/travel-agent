@@ -44,7 +44,7 @@
 | 景点开放时间 | 高德描述、博查、公开网页 | 区分常规与指定日期证据；没查到闭馆公告不等于当天开放 |
 | 铁路（含高铁列车） | 12306 优先；FlyAI 为显式候选或配置的降级 | 保留准确站点、席别、候补/无票/未开售；受阻与无票分开 |
 | 普通汽车票/长途大巴 | 出行365；可显式配置其他适配器 | 保留实际站点、车型、展示价和页范围；机场/高铁接驳专线暂缓 |
-| 机票 | FlyAI 候选；可按需核实东航公开列表 | 有限来源与候选范围，区分税前/含税价，不代表全市场或最终库存 |
+| 机票 | FlyAI 候选；可按需核实东航/南航公开列表 | 有限来源与候选范围，区分税前/含税价；南航税费/ISO币种可能未知，不代表全市场或最终库存 |
 | 酒店 | FlyAI | 房型、人数、税费、房价或库存可能缺失；不提供预订保证 |
 
 票务、酒店和浏览器来源已经过有限真实样本验证。当前票务只验证单成人，酒店查询限一个
@@ -239,6 +239,7 @@ uv run python scripts/live_probe_itinerary_edit.py --live
 uv run python scripts/live_probe_tickets.py --live
 uv run python scripts/live_probe_weather.py --live --model
 uv run python scripts/benchmark_queries.py --live
+uv run python scripts/live_probe_flight_sources.py --live
 ```
 
 结果保存在忽略的 `artifacts/`，部分探针包含隔离会话库和完整私有记录，不应公开上传。
@@ -258,6 +259,7 @@ uv run python scripts/benchmark_queries.py --live
 | 查询速度与可靠性 | [并行、限流、缓存、进度与恢复验收](docs/query-runtime.md)；离线复现 `python scripts/benchmark_queries.py` |
 | 地图/天气/搜索 | [高德](docs/providers/amap.md)、[和风](docs/providers/qweather.md)、[博查](docs/providers/bocha.md) |
 | 票务与酒店 | [浏览器来源](docs/providers/browser-tickets.md)、[FlyAI](docs/providers/flyai.md)、[供应商比较](docs/providers/ticket-suppliers.md)、[聚合铁路](docs/providers/juhe-train.md)、[极速大巴](docs/providers/jisu-coach.md) |
+| 机票来源扩展 | [UI、独立后端、真实工具的分层验证与限制](docs/providers/flight-source-validation.md) |
 | 前端与后续工作 | [前端说明](frontend/README.md)、[验证记录](docs/verification.md)、[后续迭代](docs/next-iteration.md) |
 
 示例：[正常安排](examples/itinerary-valid.json)、[冲突安排](examples/itinerary-invalid.json)、

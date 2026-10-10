@@ -31,6 +31,7 @@ class Settings(BaseSettings):
             "12306": SupplierLimit(),
             "bus365": SupplierLimit(),
             "ceair": SupplierLimit(),
+            "csair": SupplierLimit(),
             "flyai": SupplierLimit(),
             "juhe_train": SupplierLimit(),
             "jisu_coach": SupplierLimit(),
