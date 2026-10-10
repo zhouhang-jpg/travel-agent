@@ -252,6 +252,7 @@ uv run python scripts/benchmark_queries.py --live
 | --- | --- |
 | 架构与恢复 | [技术路线](docs/technical-roadmap.md)、[ADR-0001](docs/adr/0001-durable-react-runtime.md)、[持久运行](docs/durable-runtime.md) |
 | Agent 与模型 | [行为及完整上下文](docs/agent-behavior.md)、[DeepSeek 接口](docs/providers/deepseek.md) |
+| 模型上下文缓存 | [追加状态、恢复、只读诊断及真实对照](docs/context-cache.md) |
 | 行程与版本 | [版本、局部修改与验收](docs/itinerary-versions.md)、[校验规则](docs/itinerary.md) |
 | 工具与报价 | [工具层](docs/tool-layer.md)、[报价合同](docs/quotes.md)、[开放时间](docs/opening-hours.md) |
 | 查询速度与可靠性 | [并行、限流、缓存、进度与恢复验收](docs/query-runtime.md)；离线复现 `python scripts/benchmark_queries.py` |

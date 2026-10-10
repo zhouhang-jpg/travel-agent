@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from dataclasses import dataclass
@@ -10,7 +11,12 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from travel_agent.models import ChatModel, ModelError
-from travel_agent.prompts import ASK_USER_TOOL, build_system_message
+from travel_agent.prompts import ASK_USER_TOOL
+from travel_agent.runtime_context import (
+    build_policy_message,
+    build_runtime_message,
+    require_closed_tool_batch,
+)
 from travel_agent.tool_encoding import encode_tool_result
 from travel_tools.common import utc_now
 from travel_tools.registry import ErrorInfo, ToolRegistry, ToolResult
@@ -144,14 +150,34 @@ class AgentRunner:
             )
 
         definitions = [deepcopy(ASK_USER_TOOL)] + self.registry.model_definitions()
+        catalog = deepcopy(self.registry.catalog())
+        system = build_policy_message()
+        started = time.monotonic()
         try:
             async with asyncio.timeout(self.limits.max_run_seconds):
                 await persist()
-                for _ in range(self.limits.max_steps):
-                    system = build_system_message(
-                        datetime.now(timezone), timezone_name, self.registry.catalog()
+                for step in range(self.limits.max_steps):
+                    require_closed_tool_batch(conversation)
+                    conversation.append(
+                        build_runtime_message(
+                            datetime.now(timezone),
+                            timezone_name,
+                            catalog,
+                            {
+                                "run_budget": {
+                                    "model_requests_used_including_this_request": step + 1,
+                                    "model_requests_remaining_after_this": self.limits.max_steps
+                                    - step
+                                    - 1,
+                                    "active_seconds_elapsed": time.monotonic() - started,
+                                    "max_active_seconds": self.limits.max_run_seconds,
+                                }
+                            },
+                            history=conversation,
+                        )
                     )
-                    messages = [system, *deepcopy(conversation)]
+                    await persist()
+                    messages = [deepcopy(system), *deepcopy(conversation)]
                     reply = await self.model.complete(
                         messages=messages, tools=deepcopy(definitions)
                     )

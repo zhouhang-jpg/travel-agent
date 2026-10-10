@@ -95,8 +95,8 @@ async def test_multiple_questions_and_raw_fields_and_events(tmp_path):
         assert q1 != q2  # Provider tool IDs may repeat on different model steps.
         assert (await send(client, cid, "你决定", "req-3", q2)).status_code == 200
         raw = await service.facts.history(cid)
-        assert raw[1] == first.message and raw[4] == second.message
-        assert json.loads(raw[2]["content"])["data"]["state"] == "waiting_user"
+        assert raw[2] == first.message and raw[6] == second.message
+        assert json.loads(raw[3]["content"])["data"]["state"] == "waiting_user"
         assert model.requests[-1][1:] == raw[:-1]
         response = await client.get(f"/conversations/{cid}/events")
         events = [json.loads(s[6:]) for s in response.text.splitlines() if s.startswith("data: ")]
@@ -167,6 +167,7 @@ async def test_graph_thread_remains_pinned_when_switch_returns_to_legacy(tmp_pat
     async with api_client(tmp_path, Model(final()), engine="legacy") as (client, service):
         assert (await send(client, cid, "你决定", "r2", qid)).status_code == 200
         assert (await client.get(f"/conversations/{cid}")).json()["status"] == "completed"
+
         assert len(service.runtime.model.requests) == 1
 
 
@@ -231,4 +232,5 @@ async def test_large_tool_batch_has_no_graph_or_tool_count_limit(tmp_path):
         assert [m["tool_call_id"] for m in raw if m["role"] == "tool"] == [
             str(i) for i in range(40)
         ]
+        assert model.requests[1][: len(model.requests[0])] == model.requests[0]
         assert (await client.get(f"/conversations/{cid}")).json()["status"] == "completed"

@@ -114,7 +114,7 @@ async def test_lossless_tool_tables_are_persisted_and_replayed_without_history_c
 
     events, emit = emitter()
     outcome = await AgentRunner(model, registry).run([], emit, checkpoint=checkpoint)
-    tool = outcome.history[1]
+    tool = next(m for m in outcome.history if m["role"] == "tool")
     assert json.loads(tool["content"])["data"]["encoding"] == "travel-table-v1"
     assert decode_tool_result(tool["content"])["data"]["records"] == records
     assert model.requests[1][0][1:] == outcome.history[:-1]
@@ -129,7 +129,7 @@ async def test_question_resume_full_history_and_reasoning_private():
     result = await AgentRunner(first_model, make_registry()).run(initial, emit)
     assert result.status == "waiting_user"
     assert len(initial) == 1
-    assert result.history[1]["reasoning_content"] == "internal secret reasoning"
+    assert result.history[2]["reasoning_content"] == "internal secret reasoning"
     assert tool_payloads(result.history)[0]["data"]["state"] == "waiting_user"
     assert events[-1] == {
         "type": "message",
@@ -141,7 +141,7 @@ async def test_question_resume_full_history_and_reasoning_private():
     second_model = FakeModel(answer())
     final = await AgentRunner(second_model, make_registry()).run(resumed, emit)
     assert final.status == "completed"
-    assert second_model.requests[0][0][1:] == resumed
+    assert second_model.requests[0][0][1:-1] == resumed
     assert final.history[: len(resumed)] == resumed
     assert final.history[-1]["reasoning_content"] == "hidden final"
     assert "reasoning" not in json.dumps(events)
@@ -179,7 +179,7 @@ async def test_later_tool_evidence_can_trigger_another_question_in_same_conversa
         second.history + [{"role": "user", "content": "日期不变，换场馆。"}], emit
     )
     assert third.status == "completed"
-    assert third_model.requests[0][0][1:-1] == second.history
+    assert third_model.requests[0][0][1:-2] == second.history
 
 
 async def test_multiple_tools_then_autonomous_answer_and_environment():
@@ -192,7 +192,7 @@ async def test_multiple_tools_then_autonomous_answer_and_environment():
     assert len(model.requests) == 2
     assert [payload["call_id"] for payload in tool_payloads(result.history)] == ["a", "b"]
     assert model.requests[1][0][1:] == result.history[:-1]
-    system = model.requests[0][0][0]["content"]
+    system = model.requests[0][0][-1]["content"]
     assert "Asia/Shanghai" in system and "current_time" in system
     assert "search_coaches" in system
     assert [event["status"] for event in events if event["type"] == "tool_finished"] == ["ok", "ok"]
@@ -311,7 +311,7 @@ async def test_large_history_and_answer_are_passed_through_without_length_limits
     _, emit = emitter()
     result = await AgentRunner(model, make_registry()).run(history, emit)
     assert result.status == "completed"
-    assert model.requests[0][0][1:] == history
+    assert model.requests[0][0][1:-1] == history
     assert result.history[:1] == history
     assert result.content == content
 
@@ -432,7 +432,8 @@ async def test_unfinished_history_is_repaired_before_next_request():
     _, emit = emitter()
     result = await AgentRunner(model, make_registry()).run(initial, emit)
     assert result.status == "completed"
-    assert model.requests[0][0][-1]["role"] == "tool"
+    assert model.requests[0][0][-2]["role"] == "tool"
+    assert model.requests[0][0][-1]["role"] == "system"
     assert tool_payloads(result.history)[0]["error"]["code"] == "interrupted"
 
 
@@ -462,9 +463,11 @@ async def test_checkpoint_saves_assistant_before_execution_and_each_tool_result(
     )
     assert result.status == "completed"
     assert [snapshot[-1]["role"] for snapshot in snapshots if snapshot] == [
+        "system",
         "assistant",
         "tool",
+        "system",
         "assistant",
     ]
     assert snapshots[-1] == result.history
-    assert snapshots[1][0]["reasoning_content"] == "internal secret reasoning"
+    assert snapshots[2][1]["reasoning_content"] == "internal secret reasoning"

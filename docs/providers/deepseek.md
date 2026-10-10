@@ -36,6 +36,12 @@
 API 层应白名单选择公开字段，而不能直接序列化 `ModelReply.message`。运行日志也不应
 输出完整请求、原始供应商响应、密钥或私有推理字段。
 
+DeepSeek前缀缓存默认开启。首条策略与工具定义保持稳定，动态运行状态在历史末尾持久
+追加，完整旧快照继续回传；工具批次全部返回后才能追加system状态。该顺序已用Flash/
+thinking/high实测，未修改思考强度或新增长度上限。缓存尽力而为，最终以usage中的
+`prompt_cache_hit_tokens`、`prompt_cache_miss_tokens`验证，详见
+[实现、只读诊断及对照证据](../context-cache.md)。其他兼容厂商需要单独验证消息顺序。
+
 工具参数是否为合法 JSON、是否满足工具 Schema，由工具执行器处理；模型层只校验
 工具调用记录的结构及调用 ID 的唯一性，允许无正文但具有有效工具调用的 assistant 消息。
 

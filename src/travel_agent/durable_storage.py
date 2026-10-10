@@ -6,13 +6,16 @@ are immutable generations; only their canonical reference participates in this f
 
 from contextlib import asynccontextmanager
 from copy import deepcopy
+from datetime import datetime
 from hashlib import sha256
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import JSON, Float, Integer, String, select, update
 from sqlalchemy.orm import Mapped, mapped_column
 
 from travel_agent.itineraries import abandon_drafts, publish_version, stage_version
+from travel_agent.runtime_context import build_runtime_message, require_closed_tool_batch
 from travel_agent.storage import Base, Conversation, ConversationBusy, ConversationNotFound
 from travel_tools.common import utc_now
 
@@ -382,6 +385,41 @@ class DurableStore:
                 },
             ]
             return None
+
+    async def append_runtime_context(self, lease, key, catalog, planning, limits):
+        """Fence and persist the exact outbound snapshot before a paid request.
+
+        One immutable journal entry per attempt. A completed effect is replayed
+        without calling this method. An uncertain retry spends another request
+        and appends a fresh clock/budget, retaining the previous attempt's state.
+        """
+        async with self.guarded(lease) as (session, head, conversation, run):
+            effect = await session.get(Effect, key)
+            if not effect or effect.kind != "model" or effect.status == "complete":
+                raise ValueError("Runtime snapshot requires a started model attempt.")
+            context_key = f"{key}/context/{effect.attempts}"
+            existing = await session.get(Journal, context_key)
+            if existing:
+                return deepcopy(conversation.history), deepcopy(existing.payload)
+            require_closed_tool_batch(conversation.history)
+            planning = deepcopy(planning)
+            planning["run_budget"] = {
+                "model_requests_used_including_this_request": run.model_requests,
+                "model_requests_remaining_after_this": max(
+                    0, limits.max_steps - run.model_requests
+                ),
+                "active_seconds_committed": run.active_seconds,
+                "max_active_seconds": limits.max_run_seconds,
+            }
+            snapshot = build_runtime_message(
+                datetime.now(ZoneInfo(lease["timezone"])),
+                lease["timezone"],
+                catalog,
+                planning,
+                history=conversation.history,
+            )
+            await self.append_raw(session, head, conversation, context_key, snapshot)
+            return deepcopy(conversation.history), snapshot
 
     async def commit_effect(
         self, lease, key, payload, raw, question=None, itinerary=None, *, defer_history=False

@@ -15,7 +15,7 @@
 
 | 权威 | 保存内容 |
 | --- | --- |
-| `agent_journal` | 原始用户/模型消息、原始工具JSON字符串；按会话seq追加；旧history一次性导入，Conversation.history仅为兼容投影 |
+| `agent_journal` | 原始用户/模型消息、原始工具JSON字符串、发送前提交的system运行状态快照；按会话seq追加；旧history一次性导入，Conversation.history仅为兼容投影 |
 | run/request/effect/question/event | 已提交模型和工具结果、尝试记录、请求幂等、问题消费、预算、最终交付及公开事件 |
 | LangGraph native checkpoint | 执行位置、待运行任务、interrupt与pending writes；应用canonical引用不另存next_node |
 
@@ -53,6 +53,9 @@ SDK目前有一条上游弃用提示，不影响已验收行为；升级须重�
 每条新接受输入默认12次模型请求、300秒主动执行，模型单请求120秒；不加上下文、输出或
 工具总次数上限，不传max_tokens。图recursion_limit只作极高内部保护，不先于业务预算结束；
 40个工具的单批次已有验收。完整历史和供应商附加字段继续回传，不摘要或裁剪。
+首条行为策略和单运行工具定义保持稳定；动态时钟、预算和行程索引在闭合工具批次后追加
+到历史，发送前受owner/epoch围栏提交。已完成模型效果的恢复不重复追加或记账；未知尝试
+保留旧快照并为新尝试追加准确状态。协议、观测与真实DeepSeek验收见[上下文缓存](context-cache.md)。
 
 模型请求前提交预算预留；进程在预留与真正发送之间退出时，该次也保守占用预算，记录
 未知完成的尝试；无法声称供应商一定收到。真实重发再次计数。主动时间每0.5秒提交并在

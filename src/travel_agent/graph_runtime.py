@@ -6,25 +6,25 @@ import json
 import time
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime
 from hashlib import sha256
 from typing import TypedDict
 from uuid import NAMESPACE_URL, uuid5
-from zoneinfo import ZoneInfo
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 from langgraph.types import Command, interrupt
 from pydantic import ValidationError
 
-from travel_agent import prompts
+from travel_agent import prompts, runtime_context
+from travel_agent.cache_metrics import cache_observation
 from travel_agent.checkpoints import FencedSaver
 from travel_agent.durable_storage import BudgetExceeded, StaleOwner
 from travel_agent.itineraries import ItineraryService, PlanConflict
 from travel_agent.itinerary_schema import SAVE_ITINERARY_TOOL
 from travel_agent.models import ModelError
-from travel_agent.prompts import ASK_USER_TOOL, build_system_message
+from travel_agent.prompts import ASK_USER_TOOL
 from travel_agent.runner import MODEL_FAILURE_MESSAGES, AgentRunner, _tool_result
+from travel_agent.runtime_context import CONTEXT_VERSION, build_policy_message
 
 
 class State(TypedDict, total=False):
@@ -69,7 +69,10 @@ class GraphRuntime:
         self.manifest = {
             "engine": "langgraph-v1",
             "state_version": 1,
-            "prompt_version": sha256(inspect.getsource(prompts).encode()).hexdigest(),
+            "prompt_version": sha256(
+                (inspect.getsource(prompts) + inspect.getsource(runtime_context)).encode()
+            ).hexdigest(),
+            "context_version": CONTEXT_VERSION,
             "tools": [
                 deepcopy(ASK_USER_TOOL),
                 deepcopy(SAVE_ITINERARY_TOOL),
@@ -119,37 +122,32 @@ class GraphRuntime:
         try:
             payload = await self.facts.begin_effect(lease, key, "model", self.limits.max_steps)
             if payload is None:
-                history = await self.facts.history(lease["conversation_id"])
-                system = build_system_message(
-                    datetime.now(ZoneInfo(lease["timezone"])),
-                    lease["timezone"],
-                    self.manifest["catalog"],
-                )
+                system = build_policy_message()
                 planning = await self.itineraries.context(lease["conversation_id"])
-                current_run = await self.facts.run(lease["run_id"])
-                planning["run_budget"] = {
-                    "model_requests_used_including_this_request": current_run.model_requests,
-                    "model_requests_remaining_after_this": max(
-                        0, self.limits.max_steps - current_run.model_requests
-                    ),
-                    "active_seconds_committed": current_run.active_seconds,
-                    "max_active_seconds": self.limits.max_run_seconds,
-                }
-                system["content"] += (
-                    "\n【当前行程与原话引用，仅作本会话索引，完整历史仍保留】\n"
-                    + json.dumps(planning, ensure_ascii=False)
+                history, snapshot = await self.facts.append_runtime_context(
+                    lease, key, self.manifest["catalog"], planning, self.limits
                 )
+                await self.hit("context_saved_before_model")
                 await self.hit("model_request_started")
+                model_started = time.monotonic()
                 reply = await self.model.complete(
                     messages=[system, *history],
                     tools=deepcopy(self.manifest["tools"]),
                 )
+                model_elapsed = time.monotonic() - model_started
                 await self.hit("model_returned_before_save")
                 payload = {
                     "message": deepcopy(reply.message),
                     "finish_reason": reply.finish_reason,
                     "usage": deepcopy(reply.usage),
                     "system": system,
+                    "cache_observation": {
+                        **cache_observation(reply.usage),
+                        "context_version": CONTEXT_VERSION,
+                        "model": deepcopy(self.manifest["model"]),
+                        "elapsed_seconds": model_elapsed,
+                        "runtime_snapshot_utf8_bytes": len(snapshot["content"].encode("utf-8")),
+                    },
                 }
                 await self.facts.commit_effect(lease, key, payload, reply.message)
                 await self.hit("model_saved_before_checkpoint")

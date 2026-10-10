@@ -189,6 +189,61 @@ def test_budget_survives_process_restart(isolated_database, tmp_path):
 @pytest.mark.parametrize(
     "crash",
     [
+        "context_saved_before_model",
+        "model_saved_before_checkpoint",
+        "tools_history_merged_before_checkpoint",
+    ],
+)
+def test_runtime_snapshot_prefix_and_accounting_survive_process_restart(
+    isolated_database, tmp_path, crash
+):
+    from scripts.report_context_cache import report
+    from travel_agent.runtime_context import RUNTIME_MARKER, runtime_state
+
+    cid = create(isolated_database)
+    scenario = "parallel" if crash == "tools_history_merged_before_checkpoint" else "query"
+    worker(tmp_path, isolated_database, cid, scenario=scenario, crash=crash)
+
+    async def read():
+        store = ConversationStore(isolated_database)
+        history = await DurableStore(store).history(cid)
+        await store.close()
+        return history
+
+    before = asyncio.run(read())
+    original = json.dumps(before, ensure_ascii=False)
+    public = worker(tmp_path, isolated_database, cid, scenario=scenario, mode="recover")
+    assert public["status"] == "completed"
+    after = asyncio.run(read())
+    assert json.dumps(after[: len(before)], ensure_ascii=False) == original
+    snapshots = [
+        m for m in after if m["role"] == "system" and m["content"].startswith(RUNTIME_MARKER)
+    ]
+    expected = 3 if crash == "context_saved_before_model" else 2
+    assert len(snapshots) == expected
+    assert [
+        runtime_state(snapshots[:i])["planning"]["run_budget"][
+            "model_requests_used_including_this_request"
+        ]
+        for i in range(1, expected + 1)
+    ] == list(range(1, expected + 1))
+    assert (
+        runtime_state(after)["planning"]["run_budget"]["model_requests_remaining_after_this"]
+        == 12 - expected
+    )
+    assert trace(tmp_path, "model") == 2
+    worker(tmp_path, isolated_database, cid, scenario=scenario)
+    assert asyncio.run(read()) == after and trace(tmp_path, "model") == 2
+    diagnostics = asyncio.run(report(isolated_database))
+    assert diagnostics["aggregate"]["completed_requests"] == 2
+    assert diagnostics["unknown_outcome_attempts"] == expected - 2
+    assert "private-reasoning" not in json.dumps(diagnostics)
+    assert "运行状态快照" not in json.dumps(public, ensure_ascii=False)
+
+
+@pytest.mark.parametrize(
+    "crash",
+    [
         "parallel_fast_saved_before_slow",
         "tools_effects_saved_before_merge",
         "tools_history_merged_before_checkpoint",

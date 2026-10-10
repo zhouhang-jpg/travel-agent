@@ -11,6 +11,7 @@ from travel_agent.durable_storage import DurableStore
 from travel_agent.itineraries import ItineraryService, PlanConflict
 from travel_agent.models import ModelError, ModelReply
 from travel_agent.runner import _tool_result
+from travel_agent.runtime_context import runtime_state
 from travel_agent.storage import ConversationStore
 from travel_tools.itinerary import validate_itinerary
 from travel_tools.schemas.itinerary import ValidateItineraryInput
@@ -132,9 +133,7 @@ class ReplayModel:
 
 
 def planning(messages):
-    return json.loads(
-        messages[0]["content"].split("【当前行程与原话引用，仅作本会话索引，完整历史仍保留】\n")[1]
-    )
+    return runtime_state(messages)["planning"]
 
 
 async def setup_plan(client, model, cid):

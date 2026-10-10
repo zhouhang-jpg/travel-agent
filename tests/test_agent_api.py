@@ -144,15 +144,20 @@ async def test_question_answer_roundtrip_keeps_internal_history_but_hides_it_pub
             next(item for item in first_events if item["type"] == "message")["kind"] == "question"
         )
         saved_question_history = await internal_history(store, conversation_id)
-        assert [item["role"] for item in saved_question_history] == ["user", "assistant", "tool"]
-        assert saved_question_history[1]["reasoning_content"] == "private-question-reasoning"
-        question_result = json.loads(saved_question_history[2]["content"])
+        assert [item["role"] for item in saved_question_history] == [
+            "user",
+            "system",
+            "assistant",
+            "tool",
+        ]
+        assert saved_question_history[2]["reasoning_content"] == "private-question-reasoning"
+        question_result = json.loads(saved_question_history[3]["content"])
         assert question_result["data"]["state"] == "waiting_user"
 
         second = await client.post(url + "/messages", json={"content": "上海出发，10月17日到18日"})
         assert events(second)[-1] == {"type": "done", "status": "completed"}
         final_history = await internal_history(store, conversation_id)
-        assert final_history[:3] == saved_question_history
+        assert final_history[: len(saved_question_history)] == saved_question_history
         assert model.requests[1][1:] == final_history[:-1]
         assert final_history[-1]["reasoning_content"] == "private-final-reasoning"
         public_response = await client.get(url)
@@ -193,9 +198,9 @@ async def test_running_conversation_rejects_second_message_without_appending_it(
             public = (await client.get(url)).json()
             assert public["status"] == "running"
             assert len(public["transcript"]) == 1
-            assert await internal_history(store, conversation_id) == [
-                {"role": "user", "content": "等待处理"}
-            ]
+            assert [
+                m for m in await internal_history(store, conversation_id) if m["role"] == "user"
+            ] == [{"role": "user", "content": "等待处理"}]
         finally:
             model.release.set()
             response = await asyncio.wait_for(active, timeout=2)
