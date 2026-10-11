@@ -3,9 +3,11 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api, APIError } from './api';
 import { ItineraryPanel } from './ItineraryPanel';
+import { PreferencePanel, preferenceError } from './PreferencePanel';
+import { PreferenceProposalCards } from './PreferenceProposalCards';
 import { describeCalls, describeModel, updateCalls } from './progress';
 import type { Calls } from './progress';
-import type { AgentEvent, Conversation, ConversationStatus, ConversationSummary, Health, ModelProgress } from './types';
+import type { AgentEvent, Conversation, ConversationStatus, ConversationSummary, Health, ModelProgress, PreferenceProfile } from './types';
 
 const STATUS: Record<ConversationStatus, string> = {
   idle: '新的旅程', running: '正在安排', waiting_user: '等待你的补充', completed: '已生成方案', error: '需要重试',
@@ -19,6 +21,7 @@ const TOOL_LABELS: Record<string, string> = {
   search_coaches: '查询大巴', search_hotels: '查询住宿', validate_itinerary: '检查行程安排',
   save_itinerary: '保存行程修改',
   compare_itinerary_options: '比较候选方案', review_itinerary: '核对需求与方案结论',
+  get_user_preferences: '读取出行偏好', propose_user_preferences: '准备偏好建议',
 };
 const EXAMPLES = [
   { mark: '01', title: '去一座喜欢的城市', text: '从上海出发，去成都玩 4 天，想吃当地美食、看看街巷，节奏轻松一点。' },
@@ -87,6 +90,18 @@ export default function App() {
   const [streaming, setStreaming] = useState<Set<string>>(new Set());
   const [progress, setProgress] = useState<Record<string, string>>({});
   const [modelProgress, setModelProgress] = useState<Record<string, ModelProgress | null>>({});
+  const [preferenceProfile, setPreferenceProfile] = useState<PreferenceProfile | null>(null);
+  const latestPreferenceProfile = useRef<PreferenceProfile | null>(null);
+  const [preferenceLoadError, setPreferenceLoadError] = useState('');
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const [preferenceMutating, setPreferenceMutating] = useState(false);
+  const [preferenceRefresh, setPreferenceRefresh] = useState(0);
+  const [newUseSaved, setNewUseSaved] = useState(true);
+  const [preferenceControls, setPreferenceControls] = useState<Record<string, boolean>>({});
+  const [controlErrors, setControlErrors] = useState<Record<string, string>>({});
+  const [controlChanging, setControlChanging] = useState(false);
+  const [controlNotices, setControlNotices] = useState<Record<string, string>>({});
+  const controlReadSequence = useRef<Record<string, number>>({});
   const streams = useRef(new Set<string>());
   const eventCursors = useRef<Record<string, number>>({});
   const sendLock = useRef(false);
@@ -97,8 +112,73 @@ export default function App() {
   const draft = drafts[draftKey] ?? '';
   const running = !!activeId && (active?.status === 'running' || streaming.has(activeId));
   const unavailable = health?.model_configured === false;
-  const inputDisabled = running || creating || loading || (!!activeId && !active) || unavailable;
+  const inputDisabled = running || creating || loading || preferenceMutating || controlChanging || (!!activeId && !active) || unavailable;
   const error = activeId ? errors[activeId] : '';
+  const anyRunning = running || creating || streaming.size > 0 || items.some((item) => item.status === 'running');
+  const backgroundRunning = items.some((item) => item.status === 'running' && item.id !== activeId);
+  const useSaved = activeId ? preferenceControls[activeId] : newUseSaved;
+  const controlDisabled = running || creating || (!!activeId && (controlChanging || preferenceMutating || useSaved === undefined));
+  const controlNotice = activeId ? controlNotices[activeId] : '';
+
+  const publishPreferenceProfile = useCallback((profile: PreferenceProfile) => {
+    if (!latestPreferenceProfile.current || profile.revision >= latestPreferenceProfile.current.revision) {
+      latestPreferenceProfile.current = profile;
+      setPreferenceProfile(profile);
+    }
+    setPreferenceLoadError('');
+    return latestPreferenceProfile.current;
+  }, []);
+
+  const refreshPreferences = useCallback(async () => {
+    try {
+      const profile = await api.preferences();
+      // A delayed GET cannot roll back a profile already returned by a successful write.
+      return publishPreferenceProfile(profile);
+    } catch (reason) {
+      setPreferenceLoadError(preferenceError(reason));
+      throw reason;
+    }
+  }, [publishPreferenceProfile]);
+
+  const refreshPreferenceControl = useCallback(async (id: string) => {
+    const sequence = (controlReadSequence.current[id] ?? 0) + 1;
+    controlReadSequence.current[id] = sequence;
+    try {
+      const control = await api.conversationPreferences(id);
+      if (controlReadSequence.current[id] !== sequence) return;
+      setPreferenceControls((previous) => ({ ...previous, [id]: control.use_saved }));
+      setControlErrors((previous) => ({ ...previous, [id]: '' }));
+    } catch (reason) {
+      if (controlReadSequence.current[id] !== sequence) return;
+      setControlErrors((previous) => ({ ...previous, [id]: preferenceError(reason) }));
+    }
+  }, []);
+
+  const openPreferences = () => {
+    setPreferencesOpen(true); setSidebarOpen(false);
+    void refreshPreferences().catch(() => undefined);
+  };
+  const closePreferences = useCallback(() => setPreferencesOpen(false), []);
+
+  const changePreferenceControl = async (use: boolean) => {
+    if (controlDisabled) return;
+    if (activeId) setControlNotices((previous) => ({ ...previous, [activeId]: '' }));
+    if (!activeId) { setNewUseSaved(use); return; }
+    const id = activeId;
+    controlReadSequence.current[id] = (controlReadSequence.current[id] ?? 0) + 1;
+    setControlChanging(true);
+    try {
+      const control = await api.setConversationPreferences(id, use);
+      setPreferenceControls((previous) => ({ ...previous, [id]: control.use_saved }));
+      setControlErrors((previous) => ({ ...previous, [id]: '' }));
+      setControlNotices((previous) => ({ ...previous, [id]: use ? '本次偏好使用已开启。' : '本次不使用偏好，聊天记录仍会保留。' }));
+    } catch (reason) {
+      setControlErrors((previous) => ({ ...previous, [id]: preferenceError(reason) }));
+      // Retrieve the canonical setting after rejection without repeating the mutation.
+      await refreshPreferenceControl(id);
+      setControlErrors((previous) => ({ ...previous, [id]: preferenceError(reason) }));
+    } finally { setControlChanging(false); }
+  };
 
 
   const updateSnapshot = useCallback((conversation: Conversation) => {
@@ -135,6 +215,19 @@ export default function App() {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { void refreshPreferences().catch(() => undefined); }, [refreshPreferences]);
+  useEffect(() => {
+    if (activeId) void refreshPreferenceControl(activeId);
+  }, [activeId, refreshPreferenceControl]);
+
+  useEffect(() => {
+    if (!backgroundRunning) return;
+    let disposed = false;
+    const timer = window.setInterval(() => {
+      void api.list().then((result) => { if (!disposed) setItems(result.items); }).catch(() => undefined);
+    }, 2000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, [backgroundRunning]);
 
   useEffect(() => {
     try {
@@ -208,6 +301,7 @@ export default function App() {
     } else if (event.type === 'tool_started' || event.type === 'tool_progress' || event.type === 'tool_finished') {
       toolCalls.current[id] = updateCalls(toolCalls.current[id] ?? {}, event);
       setProgress((previous) => ({ ...previous, [id]: describeCalls(toolCalls.current[id], TOOL_LABELS) }));
+      if (event.type === 'tool_finished') setPreferenceRefresh((previous) => previous + 1);
     } else if (event.type === 'itinerary_updated') {
       void refreshConversation(id).catch(() => undefined);
     } else if (event.type === 'message') {
@@ -249,8 +343,9 @@ export default function App() {
     try {
       if (!id) {
         setCreating(true);
-        const conversation = await api.create();
+        const conversation = await api.create(newUseSaved);
         id = conversation.id;
+        setPreferenceControls((previous) => ({ ...previous, [conversation.id]: newUseSaved }));
         updateSnapshot(conversation);
         setActiveId(id);
         setDrafts((previous) => ({ ...previous, new: '' }));
@@ -302,6 +397,7 @@ export default function App() {
 
   const startNew = () => {
     setActiveId(null);
+    setNewUseSaved(true);
     setSidebarOpen(false);
     setGlobalError('');
     textarea.current?.focus();
@@ -309,6 +405,8 @@ export default function App() {
 
   const retryConnection = () => {
     void refresh();
+    void refreshPreferences().catch(() => undefined);
+    if (activeId) void refreshPreferenceControl(activeId);
     if (activeId && !streams.current.has(activeId)) {
       void refreshConversation(activeId).then(() => setErrors((previous) => ({ ...previous, [activeId]: '' })))
         .catch((reason: unknown) => setErrors((previous) => ({ ...previous, [activeId]: readableError(reason) })));
@@ -323,6 +421,7 @@ export default function App() {
         <span><strong>出行助手</strong><small>把想法变成旅程</small></span>
       </button>
       <button className="new-chat" onClick={startNew} disabled={creating}><Icon name="plus" size={18} />开启新旅程</button>
+      <button className="preferences-entry sidebar-preferences" onClick={openPreferences}>出行偏好<span>管理长期偏好</span></button>
       <div className="list-label"><span>我的会话</span><span>{items.length.toString().padStart(2, '0')}</span></div>
       <nav className="conversation-list">
         {loading ? <p className="list-empty">正在载入会话…</p> : items.length === 0
@@ -347,6 +446,7 @@ export default function App() {
           {active?.itinerary && <button className="view-itinerary" onClick={() => document.getElementById('current-itinerary')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>查看行程 · v{active.itinerary.revision}</button>}
         </div>
         <div className="connection"><span className={`connection-dot ${health?.model_configured ? 'ready' : ''}`} /><span>{health?.model_configured ? '助手已就绪' : health ? '等待模型配置' : '连接服务中'}</span>
+          <button className="preferences-entry" onClick={openPreferences} aria-expanded={preferencesOpen}>出行偏好</button>
           <button className="icon-button" onClick={retryConnection} aria-label="重新连接服务" title="重新连接服务"><Icon name="refresh" size={16} /></button>
         </div>
       </header>
@@ -382,10 +482,22 @@ export default function App() {
             {running && <div className="run-progress" role="status"><span className="loader" /><div><strong>{modelProgress[activeId]?.status === 'running' ? <ModelProgressLabel progress={modelProgress[activeId]!} /> : progress[activeId] ?? '正在继续安排你的旅程…'}</strong>{modelProgress[activeId]?.status === 'running' && Object.keys(toolCalls.current[activeId] ?? {}).length > 0 && <details><summary>查看查询与校验记录</summary><p>{describeCalls(toolCalls.current[activeId], TOOL_LABELS)}</p></details>}<p>执行期间请稍候，你可以切换会话或稍后回来。</p></div></div>}
           </section>}
         {(error || (active?.last_error && active.status === 'error')) && <div className="conversation-error" role="alert"><span>{error || active?.last_error?.message}</span><button onClick={retryConnection}>重新载入</button></div>}
+        {activeId && active && <PreferenceProposalCards key={activeId} conversationId={activeId}
+          refreshKey={`${active.event_seq ?? 0}:${active.status}:${preferenceRefresh}`} profile={preferenceProfile}
+          busy={anyRunning || preferenceMutating || controlChanging} conversationBusy={running || preferenceMutating || controlChanging}
+          onRefreshProfile={refreshPreferences} onChanged={publishPreferenceProfile} onMutating={setPreferenceMutating} />}
         <div ref={bottom} />
       </div>
 
-      <footer className="composer-area"><form className={`composer ${inputDisabled ? 'is-disabled' : ''}`} onSubmit={(event) => { event.preventDefault(); void send(); }}>
+      <footer className="composer-area"><div className="conversation-preferences">
+        <label><input type="checkbox" checked={useSaved ?? false} disabled={controlDisabled}
+          onChange={(event) => void changePreferenceControl(event.target.checked)} />本次使用偏好</label>
+        <span>{controlChanging ? '正在更新开关…' : running ? '本轮结束后可以切换' : useSaved === undefined ? '正在载入开关…'
+          : !useSaved ? '本次不使用偏好，聊天记录仍会保留' : preferenceProfile?.enabled === false ? '长期偏好总开关已关闭'
+          : preferenceProfile?.entries.length === 0 ? '还没有保存偏好' : '本次要求优先于已保存偏好'}</span>
+        {(activeId && controlErrors[activeId]) && <p role="alert">{controlErrors[activeId]}</p>}
+        {controlNotice && <p role="status">{controlNotice}</p>}
+      </div><form className={`composer ${inputDisabled ? 'is-disabled' : ''}`} onSubmit={(event) => { event.preventDefault(); void send(); }}>
         <label className="sr-only" htmlFor="travel-message">描述你的出行需求或补充信息</label>
         <textarea ref={textarea} id="travel-message" value={draft} rows={2} disabled={inputDisabled}
           placeholder={running ? '助手正在执行，完成后可以继续补充…' : active?.status === 'waiting_user' ? '补充信息，让我们继续安排…' : '想去哪里？有什么想法？告诉我你的出行需求…'}
@@ -394,5 +506,8 @@ export default function App() {
         <div className="composer-bottom"><span>{running ? '安排中 · 请等待本轮完成' : 'Enter 发送 · Shift + Enter 换行'}</span><button className="send-button" type="submit" disabled={inputDisabled || !draft.trim()} aria-label={running ? '正在执行，请稍候' : '发送消息'}><Icon name="arrow" size={21} /></button></div>
       </form><div className="composer-footnote"><span>重要的营业时间、价格与预订信息，请以官方渠道为准。</span><span className="model-label">{health?.model || 'DeepSeek Flash'}</span></div></footer>
     </main>
+    {preferencesOpen && <PreferencePanel profile={preferenceProfile} loadError={preferenceLoadError}
+      busy={anyRunning || preferenceMutating || controlChanging} onRefresh={refreshPreferences} onChanged={publishPreferenceProfile}
+      onMutating={setPreferenceMutating} onClose={closePreferences} />}
   </div>;
 }

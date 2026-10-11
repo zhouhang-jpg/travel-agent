@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import Field, ValidationError, field_validator
+from pydantic import Field, StrictBool, ValidationError, field_validator
 
 from travel_agent.durable_storage import RequestConflict
 from travel_agent.service import ModelNotConfigured, stream_events
@@ -17,6 +17,7 @@ router = APIRouter()
 
 class NewConversation(StrictModel):
     timezone: str = Field(default="Asia/Shanghai", min_length=1, max_length=80)
+    use_saved_preferences: StrictBool = True
 
     @field_validator("timezone")
     @classmethod
@@ -70,7 +71,11 @@ async def conversations(request: Request):
 @router.post("/conversations", status_code=201)
 async def new_conversation(request: Request):
     data = await read_payload(request, NewConversation)
-    return await request.app.state.agent.store.create(data.timezone)
+    agent = request.app.state.agent
+    conversation = await agent.store.create(data.timezone)
+    if not data.use_saved_preferences:
+        await agent.preferences.set_conversation_control(conversation["id"], False)
+    return conversation
 
 
 @router.get("/conversations/{conversation_id}")

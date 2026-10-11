@@ -22,6 +22,7 @@ import httpx
 from pydantic import Field, model_validator
 
 from travel_agent.models import ModelError, ModelReply, OpenAICompatibleModel
+from travel_agent.preferences import PreferenceValue
 from travel_agent.runtime_context import runtime_state
 from travel_agent.tool_encoding import decode_tool_result
 from travel_tools.api import create_app
@@ -94,6 +95,7 @@ class EvalCase(StrictModel):
     turns: list[EvalTurn] = Field(min_length=1)
     scripted_replies: list[ScriptedReply] = Field(min_length=1)
     provider_replays: list[ProviderReplay] = Field(default_factory=list)
+    initial_preferences: list[PreferenceValue] = Field(default_factory=list)
     assertions: list[EvalAssertion] = Field(min_length=1)
 
 
@@ -512,6 +514,21 @@ async def run_case(case: EvalCase, *, mode: Mode, settings: Settings | None = No
                 async with httpx.AsyncClient(
                     transport=httpx.ASGITransport(app), base_url="http://evaluation"
                 ) as client:
+                    if case.initial_preferences:
+                        response = await client.put(
+                            "/preferences",
+                            json={
+                                "base_revision": 0,
+                                "upsert": [
+                                    entry.model_dump(mode="json")
+                                    for entry in case.initial_preferences
+                                ],
+                            },
+                        )
+                        response.raise_for_status()
+                    observed["initial_preferences_profile"] = (
+                        await client.get("/preferences")
+                    ).json()
                     response = await client.post("/conversations", json={"timezone": case.timezone})
                     response.raise_for_status()
                     cid = response.json()["id"]
@@ -567,6 +584,13 @@ async def run_case(case: EvalCase, *, mode: Mode, settings: Settings | None = No
                                 }
                             )
                     history = await app.state.agent.durable.facts.history(cid)
+                    observed["preferences"] = (await client.get("/preferences")).json()
+                    observed["preference_proposals"] = (
+                        await client.get(f"/conversations/{cid}/preference-proposals")
+                    ).json()
+                    observed["context_user_preferences"] = (
+                        runtime_state(history).get("planning", {}).get("user_preferences")
+                    )
                     observed["tools"] = _tool_trace(history)
                     observed["tool_results"] = {}
                     for item in observed["tools"]:

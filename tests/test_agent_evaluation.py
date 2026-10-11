@@ -91,6 +91,8 @@ async def test_versioned_chinese_suite_uses_isolated_api_sse_and_no_network(tmp_
         )
         assert not any(check["status"] == "failed" for check in case["assertions"])
         assert case["elapsed_seconds"] > 0
+        assert case["preferences"] == case["initial_preferences_profile"]
+        assert case["context_user_preferences"]["entries"] == case["preferences"]["entries"]
         assert case["runs"]
         assert all(run["active_seconds"] >= 0 for run in case["runs"])
         assert sum(run["model_requests"] for run in case["runs"]) == len(case["model_requests"])
@@ -120,6 +122,86 @@ async def test_versioned_chinese_suite_uses_isolated_api_sse_and_no_network(tmp_
     }
     assert atomic["conversation"]["itinerary"] is None
     assert all(tool["name"] == "review_itinerary" for tool in atomic["tools"])
+
+
+def test_initial_preferences_are_typed_and_old_cases_keep_empty_default():
+    assert minimal_case().initial_preferences == []
+    case = minimal_case(
+        initial_preferences=[
+            {
+                "id": "transport",
+                "label": "交通偏好",
+                "value": "通常优先坐高铁",
+            }
+        ]
+    )
+    assert case.initial_preferences[0].id == "transport"
+    with pytest.raises(ValidationError):
+        minimal_case(
+            initial_preferences=[
+                {
+                    "id": "invalid id",
+                    "label": "交通偏好",
+                    "value": "通常优先坐高铁",
+                }
+            ]
+        )
+
+
+@pytest.mark.parametrize(
+    "case_id",
+    [
+        "saved_preference_current_override",
+        "explicit_preference_suggestion_pending",
+    ],
+)
+async def test_preferences_use_formal_seed_api_without_approving_suggestions(case_id, monkeypatch):
+    import json
+
+    requests = []
+    original_send = httpx.AsyncClient.send
+
+    async def observe(client, request, **kwargs):
+        assert request.url.host == "evaluation"
+        requests.append((request.method, request.url.path, request.content))
+        return await original_send(client, request, **kwargs)
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", observe)
+    case = next(item for item in load_suite(SUITE).cases if item.id == case_id)
+    result = await run_case(case, mode="offline", settings=Settings(_env_file=None))
+    assert result["preferences"] == result["initial_preferences_profile"]
+    assert result["context_user_preferences"]["entries"] == result["preferences"]["entries"]
+    assert result["run_outcome"] == "completed"
+    assert not any(check["status"] == "failed" for check in result["assertions"])
+    assert not any(path.endswith("/apply") for _, path, _ in requests)
+    puts = [
+        (index, json.loads(content))
+        for index, (method, path, content) in enumerate(requests)
+        if method == "PUT" and path == "/preferences"
+    ]
+    if case.initial_preferences:
+        assert len(puts) == 1
+        assert puts[0][1] == {
+            "base_revision": 0,
+            "upsert": [item.model_dump(mode="json") for item in case.initial_preferences],
+        }
+        new_conversation = next(
+            index
+            for index, (method, path, _) in enumerate(requests)
+            if method == "POST" and path == "/conversations"
+        )
+        assert puts[0][0] < new_conversation
+        assert result["preferences"]["entries"][0]["source"]["kind"] == "manual"
+        assert result["preference_proposals"]["items"] == []
+    else:
+        assert puts == [] and result["preferences"]["revision"] == 0
+        pending = result["preference_proposals"]["items"][0]
+        assert pending["status"] == "pending"
+        assert pending["user_reference"]["message_id"] == (
+            result["conversation"]["id"] + "/eval-" + case.id + "-0"
+        )
+        assert pending["user_reference"]["quote"] in case.turns[0].content
+        assert pending["base_revision"] == result["context_user_preferences"]["revision"]
 
 
 def test_atomic_claim_index_preserves_identity_when_result_order_changes():

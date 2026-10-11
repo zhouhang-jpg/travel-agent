@@ -54,3 +54,57 @@ test('a stale-question conflict displays its actual recovery guidance', async ()
   );
   expect(memory.size).toBe(0);
 });
+
+test('new conversations explicitly choose whether to use saved preferences', async () => {
+  fetchMock.mockResolvedValue(new Response('{}', { headers: { 'Content-Type': 'application/json' } }));
+  await api.create(false);
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ timezone: 'Asia/Shanghai', use_saved_preferences: false });
+  fetchMock.mockResolvedValue(new Response('{}', { headers: { 'Content-Type': 'application/json' } }));
+  await api.create();
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body).use_saved_preferences).toBe(true);
+});
+
+test('preference edits and clearing retain their reviewed revision', async () => {
+  const profile = { owner_id: 'local-user', revision: 8, enabled: true, entries: [], updated_at: null };
+  const response = () => new Response(JSON.stringify(profile), { headers: { 'Content-Type': 'application/json' } });
+  fetchMock.mockImplementation(async () => response());
+  const update = { base_revision: 7, enabled: false, upsert: [{ id: 'pace', label: '节奏', value: '轻松' }], remove_ids: ['hotel'] };
+  expect(await api.updatePreferences(update)).toEqual(profile);
+  expect(fetchMock.mock.calls[0][0]).toBe('/api/preferences');
+  expect(fetchMock.mock.calls[0][1].method).toBe('PUT');
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(update);
+  await api.clearPreferences(8);
+  expect(fetchMock.mock.calls[1][0]).toBe('/api/preferences?base_revision=8');
+  expect(fetchMock.mock.calls[1][1]).toEqual({ method: 'DELETE' });
+});
+
+test('proposal application uses explicit confirmation and safely encodes identifiers', async () => {
+  fetchMock.mockImplementation(async () => new Response('{}', { headers: { 'Content-Type': 'application/json' } }));
+  await api.preferenceProposals('chat/a');
+  expect(fetchMock.mock.calls[0][0]).toBe('/api/conversations/chat%2Fa/preference-proposals');
+  await api.applyPreferenceProposal('chat/a', 'proposal/b', 3);
+  expect(fetchMock.mock.calls[1][0]).toBe('/api/conversations/chat%2Fa/preference-proposals/proposal%2Fb/apply');
+  expect(fetchMock.mock.calls[1][1].method).toBe('POST');
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ base_revision: 3 });
+  await api.dismissPreferenceProposal('chat/a', 'proposal/b');
+  expect(fetchMock.mock.calls[2][0]).toContain('proposal%2Fb/dismiss');
+  expect(fetchMock.mock.calls[2][1].method).toBe('POST');
+});
+
+test('conversation preference control does not change the global profile', async () => {
+  fetchMock.mockImplementation(async () => new Response('{"use_saved":false}', { headers: { 'Content-Type': 'application/json' } }));
+  expect(await api.conversationPreferences('chat')).toEqual({ use_saved: false });
+  expect(await api.setConversationPreferences('chat', false)).toEqual({ use_saved: false });
+  expect(fetchMock.mock.calls[1][0]).toBe('/api/conversations/chat/preferences');
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ use_saved: false });
+});
+
+test('structured preference revision conflicts preserve code and do not retry the write', async () => {
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ detail: { code: 'preference_revision_conflict', message: '版本已变化' } }), {
+    status: 409, headers: { 'Content-Type': 'application/json' },
+  }));
+  await expect(api.updatePreferences({ base_revision: 2, upsert: [], remove_ids: [] })).rejects.toEqual(
+    new APIError(409, '版本已变化', 'preference_revision_conflict'),
+  );
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});

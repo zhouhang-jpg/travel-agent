@@ -4,6 +4,7 @@ import sqlite3
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 from travel_agent.runner import RunOutcome, repair_history
 from travel_agent.storage import Conversation, ConversationStore
@@ -17,7 +18,9 @@ def test_migration_upgrade_persistence_and_downgrade_in_isolated_database(tmp_pa
     command.upgrade(config, "head")
     command.upgrade(config, "head")
     with sqlite3.connect(database) as connection:
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0003",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            ScriptDirectory.from_config(config).get_current_head(),
+        )
         columns = {row[1] for row in connection.execute("PRAGMA table_info(conversations)")}
         assert columns == set(Conversation.__table__.columns.keys())
         assert "ix_conversations_updated_at" in {

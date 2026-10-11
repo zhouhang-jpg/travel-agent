@@ -26,6 +26,50 @@ export interface Conversation extends ConversationSummary {
   tool_progress?: Record<string, { name: string; status: string; reused: boolean }>;
   model_progress?: ModelProgress | null;
   itinerary?: ItineraryVersion | null;
+  use_saved_preferences?: boolean;
+}
+
+export interface PreferenceInput {
+  id: string;
+  label: string;
+  value: string;
+}
+
+export interface PreferenceEntry extends PreferenceInput {
+  updated_at: string;
+  source: {
+    kind: 'manual' | 'conversation';
+    conversation_id?: string | null;
+    message_id?: string | null;
+    quote?: string | null;
+  };
+}
+
+export interface PreferenceProfile {
+  owner_id: string;
+  revision: number;
+  enabled: boolean;
+  entries: PreferenceEntry[];
+  updated_at: string | null;
+}
+
+export interface PreferenceUpdate {
+  base_revision: number;
+  enabled?: boolean;
+  upsert: PreferenceInput[];
+  remove_ids: string[];
+}
+
+export interface ConversationPreferences { use_saved: boolean }
+
+export interface PreferenceProposal {
+  id: string;
+  base_revision: number;
+  status: 'pending' | 'applied' | 'dismissed' | 'stale';
+  patch: { upsert: PreferenceInput[]; remove_ids: string[] };
+  user_reference: { message_id: string; quote: string };
+  conversation_id: string;
+  created_at?: string;
 }
 
 export interface Health {

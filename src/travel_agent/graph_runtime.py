@@ -24,6 +24,12 @@ from travel_agent.itinerary_schema import SAVE_ITINERARY_TOOL
 from travel_agent.model_progress import model_phase
 from travel_agent.models import ModelError
 from travel_agent.plan_grounding import REVIEW_ITINERARY_TOOL
+from travel_agent.preference_tools import (
+    GET_USER_PREFERENCES_TOOL,
+    PROPOSE_USER_PREFERENCES_TOOL,
+    GetUserPreferencesInput,
+)
+from travel_agent.preferences import PreferenceConflict, PreferenceNotFound, PreferenceService
 from travel_agent.prompts import ASK_USER_TOOL
 from travel_agent.quality_tools import bind_comparison_protections, review_for_conversation
 from travel_agent.runner import MODEL_FAILURE_MESSAGES, AgentRunner, _tool_result
@@ -65,11 +71,12 @@ def failure(code, message=None):
 
 
 class GraphRuntime:
-    def __init__(self, facts, model, registry, limits, saver, *, failpoint=None):
+    def __init__(self, facts, model, registry, limits, saver, *, preferences=None, failpoint=None):
         self.facts, self.model, self.registry = facts, model, registry
         self.limits, self.saver, self.failpoint = limits, saver, failpoint
         self.executor = AgentRunner(model, registry, limits)
         self.itineraries = ItineraryService(facts)
+        self.preferences = preferences or PreferenceService(facts.store)
         self.manifest = {
             "engine": "langgraph-v1",
             "state_version": 1,
@@ -81,6 +88,8 @@ class GraphRuntime:
                 deepcopy(ASK_USER_TOOL),
                 deepcopy(SAVE_ITINERARY_TOOL),
                 deepcopy(REVIEW_ITINERARY_TOOL),
+                deepcopy(GET_USER_PREFERENCES_TOOL),
+                deepcopy(PROPOSE_USER_PREFERENCES_TOOL),
                 *registry.model_definitions(),
             ],
             "catalog": [
@@ -96,6 +105,18 @@ class GraphRuntime:
                     "availability": "ready",
                     "reason": None,
                     "scope": "current_conversation_read_only",
+                },
+                {
+                    "name": "get_user_preferences",
+                    "availability": "ready",
+                    "reason": None,
+                    "scope": "current_local_user_read_only",
+                },
+                {
+                    "name": "propose_user_preferences",
+                    "availability": "ready",
+                    "reason": None,
+                    "scope": "current_local_user_pending_confirmation",
                 },
             ],
             "model": {
@@ -136,6 +157,9 @@ class GraphRuntime:
             if payload is None:
                 system = build_policy_message()
                 planning = await self.itineraries.context(lease["conversation_id"])
+                planning["user_preferences"] = await self.preferences.context(
+                    lease["conversation_id"]
+                )
                 history, snapshot = await self.facts.append_runtime_context(
                     lease, key, self.manifest["catalog"], planning, self.limits
                 )
@@ -242,7 +266,14 @@ class GraphRuntime:
             if payload is None:
                 await progress("queued")
                 itinerary = None
-                if mixed or name in {"ask_user", "save_itinerary", "review_itinerary"}:
+                preference_proposal = None
+                if mixed or name in {
+                    "ask_user",
+                    "save_itinerary",
+                    "review_itinerary",
+                    "get_user_preferences",
+                    "propose_user_preferences",
+                }:
                     await progress("running")
                 if mixed:
                     raw = _tool_result(
@@ -250,6 +281,56 @@ class GraphRuntime:
                         code="ask_user_must_be_alone",
                         message="ask_user 必须单独调用；本组均未执行，请重新调用。",
                     )
+                elif name in {"get_user_preferences", "propose_user_preferences"}:
+                    try:
+                        arguments = parse_arguments(call["function"]["arguments"], call["id"])
+                        if name == "get_user_preferences":
+                            GetUserPreferencesInput.model_validate(arguments)
+                            data = await self.preferences.context(lease["conversation_id"])
+                        else:
+                            preference_proposal = await self.preferences.prepare_proposal(
+                                lease, key, arguments
+                            )
+                            data = {
+                                **preference_proposal,
+                                "state": "awaiting_user_confirmation",
+                                "profile_changed": False,
+                            }
+                        raw = _tool_result(call, data=data)
+                    except ArgumentJSONError as exc:
+                        raw = _tool_result(
+                            call,
+                            code="invalid_preferences_json",
+                            message="偏好工具参数JSON语法错误，请按标明位置修正完整参数。",
+                            data={"json_error": exc.details},
+                        )
+                    except PreferenceConflict as exc:
+                        raw = _tool_result(call, code=exc.code, message=exc.message)
+                    except PreferenceNotFound:
+                        raw = _tool_result(
+                            call, code="preference_scope_not_found", message="当前偏好会话不存在。"
+                        )
+                    except ValidationError as exc:
+                        raw = _tool_result(
+                            call,
+                            code="invalid_preferences",
+                            message="偏好字段或原话引用不符合工具schema，请修正指定字段。",
+                            data={
+                                "invalid_fields": [
+                                    {
+                                        "field": ".".join(str(part) for part in e["loc"]),
+                                        "type": e["type"],
+                                    }
+                                    for e in exc.errors(include_input=False, include_context=False)
+                                ]
+                            },
+                        )
+                    except (ValueError, TypeError):
+                        raw = _tool_result(
+                            call,
+                            code="invalid_preferences",
+                            message="偏好参数格式无效，请按schema修正。",
+                        )
                 elif name in {"save_itinerary", "review_itinerary", "compare_itinerary_options"}:
                     arguments = None
                     try:
@@ -354,6 +435,7 @@ class GraphRuntime:
                     question,
                     itinerary,
                     defer_history=name not in {"ask_user", "save_itinerary"},
+                    preference_proposal=preference_proposal,
                 )
                 await self.hit("question_draft" if question else "tool_saved_before_checkpoint")
                 await self.hit(f"tool_effect_saved:{index}")

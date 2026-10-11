@@ -14,6 +14,7 @@ class RuntimeService:
         self.legacy, self.durable, self.default_engine = legacy, durable, default_engine
         self.store = legacy.store
         self.itineraries = durable.itineraries
+        self.preferences = durable.preferences
 
     @property
     def tasks(self):
@@ -32,7 +33,10 @@ class RuntimeService:
 
     async def start(self, conversation_id, content, request_id=None, question_id=None):
         service = await self.selected(conversation_id)
-        return await service.start(conversation_id, content, request_id, question_id)
+        # Profile writes and accepting a new run share this local-process lock.
+        # Once accepted, mutation guards see the durable running state.
+        async with self.preferences.operation_lock:
+            return await service.start(conversation_id, content, request_id, question_id)
 
     async def get(self, conversation_id):
         service = await self.selected(conversation_id)

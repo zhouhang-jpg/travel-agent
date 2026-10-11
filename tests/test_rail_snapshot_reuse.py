@@ -69,7 +69,10 @@ async def test_same_day_upcoming_trains_are_selected_before_departed_trains():
     async with httpx.AsyncClient() as client:
         adapter = Rail12306Adapter(runtime, client)
         adapter._stations = {"上海虹桥": "AOH", "杭州东": "HGH"}
-        with patch("travel_tools.providers.rail12306.datetime") as clock:
+        with (
+            patch("travel_tools.providers.rail12306.datetime") as clock,
+            patch("travel_tools.providers.ticket_data.datetime", clock),
+        ):
             clock.now.return_value = now
             clock.fromisoformat.side_effect = datetime.fromisoformat
             result = await adapter.search(

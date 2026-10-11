@@ -422,13 +422,26 @@ class DurableStore:
             return deepcopy(conversation.history), snapshot
 
     async def commit_effect(
-        self, lease, key, payload, raw, question=None, itinerary=None, *, defer_history=False
+        self,
+        lease,
+        key,
+        payload,
+        raw,
+        question=None,
+        itinerary=None,
+        *,
+        defer_history=False,
+        preference_proposal=None,
     ):
         async with self.guarded(lease) as (session, head, conversation, run):
             effect = await session.get(Effect, key)
             if effect.status == "complete":
                 return
             effect.status, effect.payload = "complete", deepcopy(payload)
+            if preference_proposal:
+                from travel_agent.preferences import stage_proposal
+
+                await stage_proposal(session, preference_proposal)
             if not defer_history:
                 await self.append_raw(session, head, conversation, key, raw)
             if itinerary:

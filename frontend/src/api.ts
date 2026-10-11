@@ -1,10 +1,11 @@
 import { readSSE } from './sse';
-import type { AgentEvent, Conversation, ConversationSummary, Health, ItineraryVersion, ItinerarySummary } from './types';
+import type { AgentEvent, Conversation, ConversationSummary, Health, ItineraryVersion, ItinerarySummary,
+  PreferenceProfile, PreferenceUpdate, ConversationPreferences, PreferenceProposal } from './types';
 
 const ROOT = '/api';
 
 export class APIError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public code?: string) {
     super(message);
     this.name = 'APIError';
   }
@@ -13,18 +14,22 @@ export class APIError extends Error {
 async function checkResponse(response: Response) {
   if (response.ok) return;
   let message = '请求失败，请稍后再试。';
+  let code: string | undefined;
   try {
     const body = await response.json();
     const detail = body.detail ?? body;
     if (typeof detail === 'string') message = detail;
-    else if (typeof detail.message === 'string') message = detail.message;
+    else if (detail && typeof detail === 'object') {
+      if (typeof detail.message === 'string') message = detail.message;
+      if (typeof detail.code === 'string') code = detail.code;
+    }
   } catch {
     // Do not expose raw proxy errors or HTML pages to the user.
   }
   if (response.status === 503) {
     message = '模型服务尚未就绪。请在后端配置 DeepSeek API Key，再重试。';
   }
-  throw new APIError(response.status, message);
+  throw new APIError(response.status, message, code);
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -41,11 +46,34 @@ export const api = {
     `/conversations/${encodeURIComponent(id)}/itineraries`),
   itinerary: (id: string, versionId: string) => request<ItineraryVersion>(
     `/conversations/${encodeURIComponent(id)}/itineraries/${encodeURIComponent(versionId)}`),
-  create: () => request<Conversation>('/conversations', {
+  create: (useSavedPreferences = true) => request<Conversation>('/conversations', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ timezone: 'Asia/Shanghai' }),
+    body: JSON.stringify({ timezone: 'Asia/Shanghai', use_saved_preferences: useSavedPreferences }),
   }),
+  preferences: () => request<PreferenceProfile>('/preferences'),
+  updatePreferences: (update: PreferenceUpdate) => request<PreferenceProfile>('/preferences', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(update),
+  }),
+  clearPreferences: (baseRevision: number) => request<PreferenceProfile>(
+    `/preferences?base_revision=${encodeURIComponent(baseRevision)}`, { method: 'DELETE' }),
+  conversationPreferences: (id: string) => request<ConversationPreferences>(
+    `/conversations/${encodeURIComponent(id)}/preferences`),
+  setConversationPreferences: (id: string, useSaved: boolean) => request<ConversationPreferences>(
+    `/conversations/${encodeURIComponent(id)}/preferences`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ use_saved: useSaved }),
+    }),
+  preferenceProposals: (id: string) => request<{ items: PreferenceProposal[] }>(
+    `/conversations/${encodeURIComponent(id)}/preference-proposals`),
+  applyPreferenceProposal: (id: string, proposalId: string, baseRevision: number) => request<PreferenceProfile>(
+    `/conversations/${encodeURIComponent(id)}/preference-proposals/${encodeURIComponent(proposalId)}/apply`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base_revision: baseRevision }),
+    }),
+  dismissPreferenceProposal: (id: string, proposalId: string) => request<{ id: string; status: string }>(
+    `/conversations/${encodeURIComponent(id)}/preference-proposals/${encodeURIComponent(proposalId)}/dismiss`,
+    { method: 'POST' }),
   async replay(id: string, after: number, onEvent: (event: AgentEvent) => void, signal: AbortSignal) {
     const response = await fetch(`${ROOT}/conversations/${encodeURIComponent(id)}/events?after=${after}`, {
       headers: { Accept: 'text/event-stream' }, signal,

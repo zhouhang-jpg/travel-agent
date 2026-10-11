@@ -7,6 +7,7 @@ from alembic import context
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from travel_agent import preferences  # noqa: F401 - register preference tables with Base metadata
 from travel_agent.durable_storage import Base
 from travel_tools.config import Settings
 

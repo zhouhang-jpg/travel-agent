@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from travel_agent.durable_storage import DurableStore, Head, PublicEvent, Question, StaleOwner
 from travel_agent.graph_runtime import GraphRuntime, failure
 from travel_agent.itineraries import ItineraryService, public_version
+from travel_agent.preferences import PreferenceService
 from travel_agent.service import ModelNotConfigured
 from travel_agent.storage import Conversation, ConversationNotFound, public_view
 
@@ -19,7 +20,16 @@ class DurableService:
         self.facts = DurableStore(store)
         self.model = model
         self.itineraries = ItineraryService(self.facts)
-        self.runtime = GraphRuntime(self.facts, model, registry, limits, saver, failpoint=failpoint)
+        self.preferences = PreferenceService(store)
+        self.runtime = GraphRuntime(
+            self.facts,
+            model,
+            registry,
+            limits,
+            saver,
+            preferences=self.preferences,
+            failpoint=failpoint,
+        )
         self.tasks = set()
         self.followers = set()
 

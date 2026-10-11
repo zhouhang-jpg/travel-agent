@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from travel_agent.api import router as conversation_router
 from travel_agent.durable_service import DurableService
 from travel_agent.models import ModelError, OpenAICompatibleModel
+from travel_agent.preference_api import router as preference_router
 from travel_agent.runner import RunLimits, repair_history
 from travel_agent.runtime import RuntimeService
 from travel_agent.saver_lifecycle import open_saver
@@ -80,6 +81,7 @@ def create_app(
             )
             durable = DurableService(database, selected_model, app.state.registry, limits, saver)
             app.state.agent = RuntimeService(legacy, durable, config.agent_engine)
+            app.state.preferences = app.state.agent.preferences
             await durable.recover()
             app.state.agent_health = {
                 "model_configured": selected_model is not None,
@@ -97,6 +99,7 @@ def create_app(
 
     app = FastAPI(title="Travel Assistant", version="0.2.0", lifespan=lifespan)
     app.include_router(conversation_router)
+    app.include_router(preference_router)
 
     @app.exception_handler(SQLAlchemyError)
     async def storage_error(request: Request, exc: SQLAlchemyError):

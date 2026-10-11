@@ -1,8 +1,291 @@
 {
   "schema_version": "1.0",
-  "suite_version": "2026-10-10-v2",
+  "suite_version": "2026-10-11-v3",
   "description": "统一正式LangGraph/HTTP/SSE的中文多轮评测；offline仅验证运行契约，live明确模型与供应商模式。结构化断言不包含固定工具次序或固定追问次数评分；未定义语义oracle时unknown。",
   "cases": [
+    {
+      "id": "saved_preference_current_override",
+      "description": "合成档案通常优先坐高铁；本次明确飞机。通过真实偏好工具读取且保留原档案，冲突解释语义保持unknown。",
+      "tags": [
+        "preferences",
+        "current_override",
+        "synthetic",
+        "read_only"
+      ],
+      "initial_preferences": [
+        {
+          "id": "transport",
+          "label": "交通偏好",
+          "value": "通常优先坐高铁"
+        }
+      ],
+      "turns": [
+        {
+          "content": "这次明确坐飞机，平时的高铁偏好不适用。请调用 get_user_preferences 只读查看已保存偏好，并说明这次要求和长期默认偏好如何处理；不查询外部来源，不修改长期档案，也不保存行程。"
+        }
+      ],
+      "scripted_replies": [
+        {
+          "kind": "tools",
+          "calls": [
+            {
+              "name": "get_user_preferences",
+              "arguments": {}
+            }
+          ]
+        },
+        {
+          "kind": "final",
+          "content": "已读取你保存的长期默认交通偏好。此次明确坐飞机优先于平时高铁偏好，原档案保持不变；这里只说明偏好处理，不查询外部来源或保存行程。"
+        }
+      ],
+      "assertions": [
+        {
+          "id": "runtime_completed",
+          "metric": "task_completion",
+          "pointer": "/conversation/status",
+          "operator": "equals",
+          "expected": "completed",
+          "note": "仅验证实际运行完成，不代表偏好冲突解释或最终正文语义正确。"
+        },
+        {
+          "id": "profile_not_changed",
+          "metric": "constraint_preservation",
+          "pointer": "/preferences",
+          "operator": "same_as",
+          "other_pointer": "/initial_preferences_profile",
+          "oracle_scope": "structured_requirement",
+          "note": "只读读取或暂存建议不能自动修改合成初始档案，连同版本及来源元信息必须保持。"
+        },
+        {
+          "id": "no_itinerary_saved",
+          "metric": "constraint_preservation",
+          "pointer": "/conversation/itinerary",
+          "operator": "equals",
+          "expected": null,
+          "oracle_scope": "structured_requirement",
+          "note": "此次只处理偏好，不应保存行程。"
+        },
+        {
+          "id": "saved_transport_value",
+          "metric": "evidence_support",
+          "pointer": "/tool_results/get_user_preferences/latest/data/entries/0/value",
+          "operator": "equals",
+          "expected": "通常优先坐高铁",
+          "oracle_scope": "structured_requirement",
+          "note": "实际读取返回已保存的合成条目，不把当前一次要求覆写为长期档案。"
+        },
+        {
+          "id": "context_preserves_profile",
+          "metric": "constraint_preservation",
+          "pointer": "/context_user_preferences/entries",
+          "operator": "same_as",
+          "other_pointer": "/preferences/entries",
+          "oracle_scope": "structured_requirement",
+          "note": "实际完整history里的最新运行快照保留已保存偏好，当前原话另行保留。"
+        },
+        {
+          "id": "current_request_preserved",
+          "metric": "constraint_preservation",
+          "pointer": "/conversation/transcript/0/content",
+          "operator": "equals",
+          "expected": "这次明确坐飞机，平时的高铁偏好不适用。请调用 get_user_preferences 只读查看已保存偏好，并说明这次要求和长期默认偏好如何处理；不查询外部来源，不修改长期档案，也不保存行程。",
+          "oracle_scope": "structured_requirement",
+          "note": "当前飞机要求完整保存为原始输入，不被档案替换。"
+        },
+        {
+          "id": "no_suggestion_created",
+          "metric": "constraint_preservation",
+          "pointer": "/preference_proposals/items",
+          "operator": "equals",
+          "expected": [],
+          "oracle_scope": "structured_requirement",
+          "note": "此次临时飞机选择没有被自动提议或保存为长期偏好。"
+        },
+        {
+          "id": "override_explanation",
+          "metric": "constraint_preservation",
+          "operator": "unknown",
+          "note": "最终正文是否正确理解本次要求覆盖长期默认偏好，没有独立语义oracle；不通过关键词判定。"
+        },
+        {
+          "id": "final_evidence_semantics",
+          "metric": "evidence_support",
+          "operator": "unknown",
+          "note": "最终自然语言解释与档案的语义对应未自动验证。"
+        },
+        {
+          "id": "clarification_semantics",
+          "metric": "clarification_relevance",
+          "operator": "unknown",
+          "note": "追问必要性与问题语义没有独立oracle，不按问次数或工具次序评分。"
+        }
+      ]
+    },
+    {
+      "id": "explicit_preference_suggestion_pending",
+      "description": "明确长期记忆请求只生成待确认建议，以最新真实本会话原话关联，不批准或静默写入档案。",
+      "tags": [
+        "preferences",
+        "explicit_memory_request",
+        "pending_confirmation",
+        "synthetic"
+      ],
+      "initial_preferences": [],
+      "turns": [
+        {
+          "content": "记住我以后通常优先坐高铁。请以 transport 为稳定条目 ID、交通偏好为 label、通常优先坐高铁为 value 准备偏好建议，等待我在界面确认；不查询外部来源，也不保存行程。"
+        }
+      ],
+      "scripted_replies": [
+        {
+          "kind": "tools",
+          "calls": [
+            {
+              "name": "propose_user_preferences",
+              "arguments": {
+                "base_revision": {
+                  "$runtime": "/planning/user_preferences/revision"
+                },
+                "upsert": [
+                  {
+                    "id": "transport",
+                    "label": "交通偏好",
+                    "value": "通常优先坐高铁"
+                  }
+                ],
+                "user_reference": {
+                  "message_id": {
+                    "$runtime": "/planning/user_message_references/0/message_id"
+                  },
+                  "quote": "记住我以后通常优先坐高铁"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "kind": "final",
+          "content": "偏好建议已准备，尚未写入长期档案。请在界面确认后保存，当前档案仍为空。"
+        }
+      ],
+      "assertions": [
+        {
+          "id": "runtime_completed",
+          "metric": "task_completion",
+          "pointer": "/conversation/status",
+          "operator": "equals",
+          "expected": "completed",
+          "note": "仅验证实际运行完成，不代表偏好冲突解释或最终正文语义正确。"
+        },
+        {
+          "id": "profile_not_changed",
+          "metric": "constraint_preservation",
+          "pointer": "/preferences",
+          "operator": "same_as",
+          "other_pointer": "/initial_preferences_profile",
+          "oracle_scope": "structured_requirement",
+          "note": "只读读取或暂存建议不能自动修改合成初始档案，连同版本及来源元信息必须保持。"
+        },
+        {
+          "id": "no_itinerary_saved",
+          "metric": "constraint_preservation",
+          "pointer": "/conversation/itinerary",
+          "operator": "equals",
+          "expected": null,
+          "oracle_scope": "structured_requirement",
+          "note": "此次只处理偏好，不应保存行程。"
+        },
+        {
+          "id": "empty_profile_stays_empty",
+          "metric": "constraint_preservation",
+          "pointer": "/preferences/entries",
+          "operator": "equals",
+          "expected": [],
+          "oracle_scope": "structured_requirement",
+          "note": "仅建议不能修改空档案，评测不执行批准接口。"
+        },
+        {
+          "id": "proposal_awaits_confirmation",
+          "metric": "task_completion",
+          "pointer": "/tool_results/propose_user_preferences/latest/data/state",
+          "operator": "equals",
+          "expected": "awaiting_user_confirmation",
+          "oracle_scope": "structured_requirement",
+          "note": "建议工具返回明确等待界面确认的状态。"
+        },
+        {
+          "id": "tool_did_not_change_profile",
+          "metric": "constraint_preservation",
+          "pointer": "/tool_results/propose_user_preferences/latest/data/profile_changed",
+          "operator": "equals",
+          "expected": false,
+          "oracle_scope": "structured_requirement",
+          "note": "工具明确报告档案未变更，实际GET档案同步校验。"
+        },
+        {
+          "id": "pending_status",
+          "metric": "constraint_preservation",
+          "pointer": "/preference_proposals/items/0/status",
+          "operator": "equals",
+          "expected": "pending",
+          "oracle_scope": "structured_requirement",
+          "note": "实际会话建议仍待确认，不自动点击应用或写入私人档案。"
+        },
+        {
+          "id": "pending_patch",
+          "metric": "evidence_support",
+          "pointer": "/preference_proposals/items/0/patch/upsert/0",
+          "operator": "equals",
+          "expected": {
+            "id": "transport",
+            "label": "交通偏好",
+            "value": "通常优先坐高铁"
+          },
+          "oracle_scope": "structured_requirement",
+          "note": "待确认patch保留用户明确指定的稳定ID、label与value；这些字段由合成用户原话明确给出。"
+        },
+        {
+          "id": "tool_and_pending_reference_agree",
+          "metric": "evidence_support",
+          "pointer": "/tool_results/propose_user_preferences/latest/data/user_reference",
+          "operator": "same_as",
+          "other_pointer": "/preference_proposals/items/0/user_reference",
+          "oracle_scope": "structured_requirement",
+          "note": "已提交工具效果和会话建议保留相同真实用户来源；最新消息合法性由服务端检查。"
+        },
+        {
+          "id": "proposal_revision_matches_context",
+          "metric": "evidence_support",
+          "pointer": "/preference_proposals/items/0/base_revision",
+          "operator": "same_as",
+          "other_pointer": "/context_user_preferences/revision",
+          "oracle_scope": "structured_requirement",
+          "note": "建议以实际运行快照档案revision为基础，不硬编码或修改用户库版本。"
+        },
+        {
+          "id": "context_remains_empty",
+          "metric": "constraint_preservation",
+          "pointer": "/context_user_preferences/entries",
+          "operator": "equals",
+          "expected": [],
+          "oracle_scope": "structured_requirement",
+          "note": "暂存建议不会注入成已保存长期偏好。"
+        },
+        {
+          "id": "memory_intent_semantics",
+          "metric": "evidence_support",
+          "operator": "unknown",
+          "note": "原话引用真实不证明建议提取完整或最终表述正确，不通过记住或尚未保存等关键词评分。"
+        },
+        {
+          "id": "clarification_semantics",
+          "metric": "clarification_relevance",
+          "operator": "unknown",
+          "note": "追问必要性与问题语义没有独立oracle，不按问次数或工具次序评分。"
+        }
+      ]
+    },
     {
       "id": "atomic_claim_review",
       "description": "给定合成文档及三项原子结论，只读核对错误人数、记录金额相等和无法证明预算内；offline/live共用原始输入，无外部供应商。",
