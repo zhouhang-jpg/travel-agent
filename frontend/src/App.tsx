@@ -425,7 +425,7 @@ export default function App() {
         const element = event.currentTarget;
         followProgress.current = element.scrollHeight - element.scrollTop - element.clientHeight < 160;
       }}>
-        {active?.itinerary && activeId && <ItineraryPanel key={activeId} conversationId={activeId} current={active.itinerary} />}
+        {active?.itinerary && activeId && <ItineraryPanel key={`itinerary:${activeId}`} conversationId={activeId} current={active.itinerary} />}
         {!activeId || (active && active.transcript.length === 0) ? <section className="welcome">
           <div className="welcome-eyebrow"><span />从这里，走向想去的地方</div>
           <h1>下一站，<br /><span>去哪里？</span></h1>
@@ -454,7 +454,7 @@ export default function App() {
               modelProgress={modelProgress[activeId]} />}</Fragment>)}
           </section>}
         {(error || (active?.last_error && active.status === 'error')) && <div className="conversation-error" role="alert"><span>{error || active?.last_error?.message}</span><button onClick={retryConnection}>重新载入</button></div>}
-        {activeId && active && <PreferenceProposalCards key={activeId} conversationId={activeId}
+        {activeId && active && <PreferenceProposalCards key={`preference-proposals:${activeId}`} conversationId={activeId}
           refreshKey={`${active.event_seq ?? 0}:${active.status}:${preferenceRefresh}`} profile={preferenceProfile}
           busy={anyRunning || preferenceMutating || controlChanging} conversationBusy={running || preferenceMutating || controlChanging}
           onRefreshProfile={refreshPreferences} onChanged={publishPreferenceProfile} onMutating={setPreferenceMutating} />}
