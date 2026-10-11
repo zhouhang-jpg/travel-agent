@@ -1,6 +1,7 @@
 import type { ActivityEvent, AgentEvent, Conversation, ModelProgress, TranscriptMessage } from './types';
 
 export const TOOL_LABELS: Record<string, string> = {
+  ask_user: '请求补充信息',
   search_places: '查找地点', search_pois: '查找地点', get_place_details: '核实地点信息',
   get_attraction_opening_hours: '查询景点开放时间', geocode: '定位出行地点',
   get_routes: '查询路线', plan_route: '查询路线', get_weather: '查询天气',

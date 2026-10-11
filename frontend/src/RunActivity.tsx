@@ -15,7 +15,7 @@ function ToolRow({ record, running }: { record: ToolRecord; running: boolean }) 
   const states: Record<string, string> = {
     queued: '排队中', running: '查询中', reused: '复用已有结果', ok: '成功', error: '失败',
   };
-  const status = unfinished && !running ? '未完成' : record.status === 'ok' && record.reused ? '成功 · 已复用' : states[record.status] ?? '已返回';
+  const status = unfinished && !running ? '未完成' : record.name === 'ask_user' && record.status === 'ok' ? '已发出' : record.status === 'ok' && record.reused ? '成功 · 已复用' : states[record.status] ?? '已返回';
   return <li className={`activity-tool ${unfinished && running ? 'is-active' : ''} ${record.status === 'error' ? 'has-error' : ''}`}>
     <span className={`activity-mark ${unfinished && running ? 'loader' : ''}`} aria-hidden="true">{unfinished && running ? '' : record.status === 'error' ? '!' : unfinished ? '−' : '✓'}</span>
     <div className="activity-tool-main"><span className="activity-tool-title">{TOOL_LABELS[record.name] ?? '查询出行信息'}</span>
