@@ -1,6 +1,7 @@
 """Background graph execution and replay from committed public events."""
 
 import asyncio
+from copy import deepcopy
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -10,6 +11,7 @@ from travel_agent.durable_storage import DurableStore, Head, PublicEvent, Questi
 from travel_agent.graph_runtime import GraphRuntime, failure
 from travel_agent.itineraries import ItineraryService, public_version
 from travel_agent.preferences import PreferenceService
+from travel_agent.public_progress import ACTIVITY_TYPES
 from travel_agent.service import ModelNotConfigured
 from travel_agent.storage import Conversation, ConversationNotFound, public_view
 
@@ -85,6 +87,8 @@ class DurableService:
                 raise ConversationNotFound
             conversation, head = joined
             public = public_view(conversation)
+            public["active_run_id"] = conversation.active_run_id
+            public["activity_events"] = []
             if head:
                 public["engine"] = head.engine
                 public["event_seq"] = head.event_seq
@@ -94,14 +98,13 @@ class DurableService:
                 public["question_id"] = (
                     question.id if question and question.status == "ready" else None
                 )
-                # Rebuild the same public call states at this snapshot's cursor.
-                # Refresh must not skip in-progress calls when reconnecting after N.
+                # The full timeline survives completion, refresh and a new turn.
+                # Everything is projected only from committed public events.
                 rows = (
                     await session.scalars(
                         select(PublicEvent)
                         .where(
                             PublicEvent.conversation_id == conversation_id,
-                            PublicEvent.run_id == conversation.active_run_id,
                             PublicEvent.seq <= head.event_seq,
                         )
                         .order_by(PublicEvent.seq)
@@ -109,8 +112,15 @@ class DurableService:
                 ).all()
                 calls = {}
                 model_progress = None
+                messages = {}
                 for row in rows:
                     event = row.payload
+                    if event["type"] in ACTIVITY_TYPES:
+                        public["activity_events"].append(deepcopy(event))
+                    if event["type"] == "message" and event.get("message_id"):
+                        messages[event["message_id"]] = event
+                    if row.run_id != conversation.active_run_id:
+                        continue
                     if event["type"] == "model_progress":
                         model_progress = event
                     if event["type"] in {"tool_started", "tool_progress", "tool_finished"}:
@@ -126,7 +136,15 @@ class DurableService:
                             "name": event["tool_name"],
                             "status": status,
                             "reused": old.get("reused", False) or status == "reused",
+                            "summary": event.get("summary", old.get("summary", "")),
                         }
+                # Old transcript entries may predate run/sequence metadata. Enrich
+                # the public copy by message ID; never rewrite stored old history.
+                for message in public["transcript"]:
+                    event = messages.get(message.get("message_id"))
+                    if event:
+                        message.setdefault("run_id", event["run_id"])
+                        message.setdefault("event_seq", event["event_seq"])
                 public["tool_progress"] = calls
                 public["model_progress"] = model_progress
         current = await self.itineraries.current(conversation_id)

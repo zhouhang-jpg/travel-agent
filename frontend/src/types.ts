@@ -7,6 +7,10 @@ export interface TranscriptMessage {
   created_at: string;
   message_id?: string;
   question_id?: string;
+  run_id?: string;
+  event_seq?: number;
+  optimistic?: boolean;
+  optimistic_after_seq?: number;
 }
 
 export interface ConversationSummary {
@@ -23,7 +27,9 @@ export interface Conversation extends ConversationSummary {
   question_id?: string | null;
   engine?: string;
   event_seq?: number;
-  tool_progress?: Record<string, { name: string; status: string; reused: boolean }>;
+  active_run_id?: string | null;
+  activity_events?: ActivityEvent[];
+  tool_progress?: Record<string, { name: string; status: string; reused: boolean; summary?: string }>;
   model_progress?: ModelProgress | null;
   itinerary?: ItineraryVersion | null;
   use_saved_preferences?: boolean;
@@ -80,21 +86,25 @@ export interface Health {
 
 export interface ModelProgress {
   type: 'model_progress'; call_id: string; request_number: number;
+  run_id?: string; event_seq?: number; created_at?: string;
   phase: 'deciding' | 'reviewing_results' | 'repairing_itinerary' | 'reviewing_saved_itinerary';
   started_at: string; attempt: number; status: 'running' | 'complete' | 'error';
 }
 
-export type AgentEvent = ({ event_seq?: number; run_id?: string; message_id?: string; question_id?: string } & (
+export type AgentEvent = ({ event_seq?: number; run_id?: string; message_id?: string; question_id?: string; created_at?: string } & (
   | ModelProgress
+  | { type: 'commentary'; content: string }
   | { type: 'status'; status: ConversationStatus }
-  | { type: 'tool_started'; tool_name: string; call_id?: string }
-  | { type: 'tool_progress'; tool_name: string; call_id: string; status: 'queued' | 'running' | 'reused' }
+  | { type: 'tool_started'; tool_name: string; call_id?: string; summary?: string }
+  | { type: 'tool_progress'; tool_name: string; call_id: string; status: 'queued' | 'running' | 'reused'; summary?: string }
   | { type: 'supplier_progress'; tool_name: string; call_id: string; request_id: string; supplier: string; status: 'queued' | 'running' | 'ok' | 'error' }
-  | { type: 'tool_finished'; tool_name: string; call_id?: string; status: 'ok' | 'error' }
+  | { type: 'tool_finished'; tool_name: string; call_id?: string; status: 'ok' | 'error'; summary?: string }
   | { type: 'message'; role: 'user' | 'assistant'; content: string; kind: 'message' | 'question' | 'answer' | 'error' }
   | { type: 'done'; status: ConversationStatus }
   | { type: 'itinerary_updated'; version_id: string; revision: number }
   | { type: 'error'; code: string; message: string }));
+
+export type ActivityEvent = Extract<AgentEvent, { type: 'commentary' | 'tool_started' | 'tool_progress' | 'tool_finished' | 'model_progress' }>;
 
 export interface ItineraryVersion {
   id: string; revision: number | null; base_version_id: string | null; created_at: string; change_reason: string;

@@ -1,6 +1,6 @@
 import type { AgentEvent, ModelProgress } from './types';
 
-export type Calls = Record<string, { name: string; status: string; reused: boolean }>;
+export type Calls = Record<string, { name: string; status: string; reused: boolean; summary?: string }>;
 
 export function describeModel(progress: ModelProgress, now: number): string {
   const labels: Record<ModelProgress['phase'], string> = {
@@ -20,8 +20,9 @@ export function updateCalls(calls: Calls, event: AgentEvent): Calls {
   const old = calls[key];
   const status = event.type === 'tool_started' ? 'running' : event.status;
   // Replay/recovery may report reuse after the original terminal event.
-  if (old && (old.status === 'ok' || old.status === 'error') && status !== 'ok' && status !== 'error') return calls;
-  return { ...calls, [key]: { name: event.tool_name, status, reused: old?.reused || status === 'reused' } };
+  const terminal = old && (old.status === 'ok' || old.status === 'error') && status !== 'ok' && status !== 'error';
+  return { ...calls, [key]: { name: event.tool_name, status: terminal ? old.status : status,
+    reused: old?.reused || status === 'reused', summary: event.summary ?? old?.summary } };
 }
 
 export function describeCalls(calls: Calls, labels: Record<string, string>): string {

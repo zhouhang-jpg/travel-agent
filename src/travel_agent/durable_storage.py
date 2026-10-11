@@ -149,7 +149,13 @@ class DurableStore:
         if old:
             return
         head.event_seq += 1
-        event = {**deepcopy(payload), "event_seq": head.event_seq, "run_id": run.id}
+        created_at = utc_now().isoformat()
+        event = {
+            **deepcopy(payload),
+            "event_seq": head.event_seq,
+            "run_id": run.id,
+            "created_at": created_at,
+        }
         if payload["type"] == "message":
             event["message_id"] = key
         session.add(
@@ -164,8 +170,10 @@ class DurableStore:
                     "role": payload.get("role", "assistant"),
                     "content": payload["content"],
                     "kind": payload.get("kind", "answer"),
-                    "created_at": utc_now().isoformat(),
+                    "created_at": created_at,
                     "message_id": key,
+                    "run_id": run.id,
+                    "event_seq": head.event_seq,
                     **({"question_id": payload["question_id"]} if "question_id" in payload else {}),
                 },
             ]

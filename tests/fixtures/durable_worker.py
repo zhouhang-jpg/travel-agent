@@ -98,7 +98,7 @@ async def main():
             return ModelReply(
                 {
                     "role": "assistant",
-                    "content": None,
+                    "content": options.get("commentary"),
                     "tool_calls": calls,
                     "reasoning_content": "private-reasoning",
                     "opaque": {"preserve": [1, True, None]},

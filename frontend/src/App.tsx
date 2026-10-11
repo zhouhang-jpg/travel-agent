@@ -1,27 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api, APIError } from './api';
 import { ItineraryPanel } from './ItineraryPanel';
 import { PreferencePanel, preferenceError } from './PreferencePanel';
 import { PreferenceProposalCards } from './PreferenceProposalCards';
-import { describeCalls, describeModel, updateCalls } from './progress';
-import type { Calls } from './progress';
+import { activityForTurn, applyConversationEvent, latestModelProgress, mergeConversationSnapshot } from './activity';
+import { RunActivity } from './RunActivity';
 import type { AgentEvent, Conversation, ConversationStatus, ConversationSummary, Health, ModelProgress, PreferenceProfile } from './types';
 
 const STATUS: Record<ConversationStatus, string> = {
   idle: '新的旅程', running: '正在安排', waiting_user: '等待你的补充', completed: '已生成方案', error: '需要重试',
-};
-const TOOL_LABELS: Record<string, string> = {
-  search_places: '查找地点', search_pois: '查找地点', get_place_details: '核实地点信息',
-  get_attraction_opening_hours: '查询景点开放时间',
-  geocode: '定位出行地点', get_routes: '查询路线', plan_route: '查询路线',
-  get_weather: '查询天气', search_web: '查找出行资料', web_search: '查找出行资料',
-  fetch_webpage: '阅读来源资料', search_flights: '查询航班', search_trains: '查询火车',
-  search_coaches: '查询大巴', search_hotels: '查询住宿', validate_itinerary: '检查行程安排',
-  save_itinerary: '保存行程修改',
-  compare_itinerary_options: '比较候选方案', review_itinerary: '核对需求与方案结论',
-  get_user_preferences: '读取出行偏好', propose_user_preferences: '准备偏好建议',
 };
 const EXAMPLES = [
   { mark: '01', title: '去一座喜欢的城市', text: '从上海出发，去成都玩 4 天，想吃当地美食、看看街巷，节奏轻松一点。' },
@@ -65,18 +54,7 @@ function savedConversation() {
   try { return localStorage.getItem('travel-agent.activeConversation'); } catch { return null; }
 }
 
-function ModelProgressLabel({ progress }: { progress: ModelProgress }) {
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [progress.call_id, progress.attempt, progress.started_at]);
-  return <>{describeModel(progress, now)}</>;
-}
-
 export default function App() {
-  const toolCalls = useRef<Record<string, Calls>>({});
   const [health, setHealth] = useState<Health | null>(null);
   const [items, setItems] = useState<ConversationSummary[]>([]);
   const [snapshots, setSnapshots] = useState<Record<string, Conversation>>({});
@@ -88,7 +66,6 @@ export default function App() {
   const [creating, setCreating] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [streaming, setStreaming] = useState<Set<string>>(new Set());
-  const [progress, setProgress] = useState<Record<string, string>>({});
   const [modelProgress, setModelProgress] = useState<Record<string, ModelProgress | null>>({});
   const [preferenceProfile, setPreferenceProfile] = useState<PreferenceProfile | null>(null);
   const latestPreferenceProfile = useRef<PreferenceProfile | null>(null);
@@ -105,6 +82,7 @@ export default function App() {
   const streams = useRef(new Set<string>());
   const eventCursors = useRef<Record<string, number>>({});
   const sendLock = useRef(false);
+  const followProgress = useRef(true);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const active = activeId ? snapshots[activeId] : undefined;
@@ -182,18 +160,16 @@ export default function App() {
 
 
   const updateSnapshot = useCallback((conversation: Conversation) => {
-    if ((conversation.event_seq ?? 0) >= (eventCursors.current[conversation.id] ?? 0)) {
-      setModelProgress((previous) => ({ ...previous, [conversation.id]: conversation.model_progress ?? null }));
-    }
-    if (conversation.tool_progress && (conversation.event_seq ?? 0) >= (eventCursors.current[conversation.id] ?? 0)) {
-      toolCalls.current[conversation.id] = conversation.tool_progress;
-      setProgress((previous) => ({ ...previous, [conversation.id]: describeCalls(conversation.tool_progress!, TOOL_LABELS) }));
+    const current = (conversation.event_seq ?? 0) >= (eventCursors.current[conversation.id] ?? 0);
+    if (current) {
+      setModelProgress((previous) => ({ ...previous, [conversation.id]: conversation.model_progress
+        ? latestModelProgress(previous[conversation.id], conversation.model_progress) : null }));
     }
     if (conversation.event_seq !== undefined) {
       eventCursors.current[conversation.id] = Math.max(eventCursors.current[conversation.id] ?? 0, conversation.event_seq);
     }
-    setSnapshots((previous) => ({ ...previous, [conversation.id]: conversation }));
-    setItems((previous) => [conversation, ...previous.filter((item) => item.id !== conversation.id)]
+    setSnapshots((previous) => ({ ...previous, [conversation.id]: mergeConversationSnapshot(previous[conversation.id], conversation) }));
+    if (current) setItems((previous) => [conversation, ...previous.filter((item) => item.id !== conversation.id)]
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at)));
   }, []);
 
@@ -268,8 +244,13 @@ export default function App() {
   }, [activeId, active?.status, streaming, updateSnapshot]);
 
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [activeId, active?.transcript.length, running]);
+    followProgress.current = true;
+    bottom.current?.scrollIntoView({ block: 'end' });
+  }, [activeId]);
+
+  useEffect(() => {
+    if (followProgress.current) bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [active?.transcript.length, active?.activity_events?.length, running]);
 
   useEffect(() => {
     if (textarea.current) {
@@ -289,36 +270,18 @@ export default function App() {
       if (event.event_seq <= (eventCursors.current[id] ?? 0)) return;
       eventCursors.current[id] = event.event_seq;
     }
+    setSnapshots((previous) => previous[id] ? { ...previous, [id]: applyConversationEvent(previous[id], event) } : previous);
     if (event.type === 'status' || event.type === 'done') {
-      updateStatus(id, event.status);
+      setItems((previous) => previous.map((item) => item.id === id ? { ...item, status: event.status } : item));
       if (event.status === 'running') {
         setModelProgress((previous) => ({ ...previous, [id]: null }));
-        toolCalls.current[id] = {};
-        setProgress((previous) => ({ ...previous, [id]: '正在理解你的需求，安排下一步…' }));
       }
     } else if (event.type === 'model_progress') {
-      setModelProgress((previous) => ({ ...previous, [id]: event }));
+      setModelProgress((previous) => ({ ...previous, [id]: latestModelProgress(previous[id], event) }));
     } else if (event.type === 'tool_started' || event.type === 'tool_progress' || event.type === 'tool_finished') {
-      toolCalls.current[id] = updateCalls(toolCalls.current[id] ?? {}, event);
-      setProgress((previous) => ({ ...previous, [id]: describeCalls(toolCalls.current[id], TOOL_LABELS) }));
       if (event.type === 'tool_finished') setPreferenceRefresh((previous) => previous + 1);
     } else if (event.type === 'itinerary_updated') {
       void refreshConversation(id).catch(() => undefined);
-    } else if (event.type === 'message') {
-      if (event.role === 'user') return;
-      setSnapshots((previous) => {
-        const conversation = previous[id];
-        if (!conversation) return previous;
-        if (event.message_id && conversation.transcript.some((message) => message.message_id === event.message_id)) return previous;
-        const lastMessage = conversation.transcript.at(-1);
-        if (!event.message_id && lastMessage?.role === 'assistant' && lastMessage.content === event.content && lastMessage.kind === event.kind) return previous;
-        return { ...previous, [id]: { ...conversation,
-          question_id: event.kind === 'question' ? event.question_id : conversation.question_id,
-          transcript: [...conversation.transcript, {
-          role: 'assistant', content: event.content, kind: event.kind, created_at: new Date().toISOString(),
-          message_id: event.message_id, question_id: event.question_id,
-        }] } };
-      });
     } else if (event.type === 'error') {
       setErrors((previous) => ({ ...previous, [id]: event.message || '执行出错，请稍后重试。' }));
     }
@@ -355,11 +318,13 @@ export default function App() {
       setStreaming(new Set(streams.current));
       setDrafts((previous) => ({ ...previous, [runId]: '' }));
       setErrors((previous) => ({ ...previous, [runId]: '' }));
-      setProgress((previous) => ({ ...previous, [runId]: '正在理解你的需求，安排下一步…' }));
+      setModelProgress((previous) => ({ ...previous, [runId]: null }));
+      const optimisticRun = `local-${crypto.randomUUID()}`;
       setSnapshots((previous) => ({ ...previous, [runId]: {
-        ...previous[runId], status: 'running', last_error: null,
+        ...previous[runId], status: 'running', last_error: null, active_run_id: optimisticRun,
         transcript: [...previous[runId].transcript, {
-          role: 'user', content, kind: 'message', created_at: new Date().toISOString(),
+          role: 'user', content, kind: 'message', created_at: new Date().toISOString(), optimistic: true, run_id: optimisticRun,
+          optimistic_after_seq: eventCursors.current[runId] ?? 0,
         }],
       } }));
       setCreating(false);
@@ -370,6 +335,9 @@ export default function App() {
         setErrors((previous) => ({ ...previous, [runId]: readableError(reason) }));
         if (reason instanceof APIError) {
           setDrafts((previous) => ({ ...previous, [runId]: content }));
+          if (reason.status >= 400 && reason.status < 500) setSnapshots((previous) => ({ ...previous, [runId]: {
+            ...previous[runId], transcript: previous[runId].transcript.filter((message) => !message.optimistic || message.run_id !== optimisticRun),
+          } }));
         }
       } finally {
         // Replace temporary stream messages with the canonical transcript, never append it.
@@ -453,7 +421,10 @@ export default function App() {
 
       {(globalError || unavailable) && <div className="notice" role="alert"><span>{globalError || '请先在后端配置 DeepSeek API Key，再开始你的旅程。'}</span><button onClick={retryConnection}>重新连接</button></div>}
 
-      <div className="chat-scroll">
+      <div className="chat-scroll" onScroll={(event) => {
+        const element = event.currentTarget;
+        followProgress.current = element.scrollHeight - element.scrollTop - element.clientHeight < 160;
+      }}>
         {active?.itinerary && activeId && <ItineraryPanel key={activeId} conversationId={activeId} current={active.itinerary} />}
         {!activeId || (active && active.transcript.length === 0) ? <section className="welcome">
           <div className="welcome-eyebrow"><span />从这里，走向想去的地方</div>
@@ -467,7 +438,7 @@ export default function App() {
           <p className="welcome-note">不必一次说清所有细节，助手会在需要时向你确认。</p>
         </section> : !active ? <div className="loading-conversation"><span className="loader" />正在找回这段旅程…</div>
           : <section className="transcript" aria-label="聊天记录" aria-live="polite" aria-relevant="additions">
-            {active.transcript.map((message, index) => <article className={`message ${message.role} ${message.kind === 'error' ? 'message-error' : ''}`} key={`${index}-${message.created_at}`}>
+            {active.transcript.map((message, index) => <Fragment key={message.message_id ?? `${index}-${message.created_at}`}><article className={`message ${message.role} ${message.kind === 'error' ? 'message-error' : ''}`}>
               <div className="message-avatar">{message.role === 'assistant' ? <Icon name="compass" size={20} /> : '你'}</div>
               <div className="message-main"><div className="message-meta"><strong>{message.role === 'assistant' ? '出行助手' : '你'}</strong>{message.kind === 'question' && <span>需要你补充</span>}</div>
                 {message.role === 'user' ? <div className="user-text">{message.content}</div> : <div className="markdown">
@@ -478,8 +449,9 @@ export default function App() {
                   }}>{message.content}</ReactMarkdown>
                 </div>}
               </div>
-            </article>)}
-            {running && <div className="run-progress" role="status"><span className="loader" /><div><strong>{modelProgress[activeId]?.status === 'running' ? <ModelProgressLabel progress={modelProgress[activeId]!} /> : progress[activeId] ?? '正在继续安排你的旅程…'}</strong>{modelProgress[activeId]?.status === 'running' && Object.keys(toolCalls.current[activeId] ?? {}).length > 0 && <details><summary>查看查询与校验记录</summary><p>{describeCalls(toolCalls.current[activeId], TOOL_LABELS)}</p></details>}<p>执行期间请稍候，你可以切换会话或稍后回来。</p></div></div>}
+            </article>{message.role === 'user' && <RunActivity events={activityForTurn(active, index)}
+              running={running && !active.transcript.slice(index + 1).some((entry) => entry.role === 'user')}
+              modelProgress={modelProgress[activeId]} />}</Fragment>)}
           </section>}
         {(error || (active?.last_error && active.status === 'error')) && <div className="conversation-error" role="alert"><span>{error || active?.last_error?.message}</span><button onClick={retryConnection}>重新载入</button></div>}
         {activeId && active && <PreferenceProposalCards key={activeId} conversationId={activeId}

@@ -171,6 +171,32 @@ def test_model_tool_final_recovery(isolated_database, tmp_path, crash, models, t
     asyncio.run(facts())
 
 
+@pytest.mark.parametrize(
+    "crash", ["model_saved_before_checkpoint", "commentary_saved_before_checkpoint"]
+)
+def test_commentary_recovered_once_from_committed_reply(isolated_database, tmp_path, crash):
+    cid = create(isolated_database)
+    worker(
+        tmp_path,
+        isolated_database,
+        cid,
+        scenario="query",
+        crash=crash,
+        commentary="先查询候选，再核对适用条件。",
+    )
+    public = worker(tmp_path, isolated_database, cid, scenario="query", mode="recover")
+    updates = [event for event in public["activity_events"] if event["type"] == "commentary"]
+    assert len(updates) == 1
+    assert updates[0]["content"] == "先查询候选，再核对适用条件。"
+    assert updates[0]["created_at"]
+    assert trace(tmp_path, "model") == 2 and trace(tmp_path, "tool") == 2
+    assert updates[0]["event_seq"] < min(
+        event["event_seq"] for event in public["activity_events"] if event["type"] == "tool_started"
+    )
+    assert "private-reasoning" not in json.dumps(public)
+    assert "opaque" not in json.dumps(public)
+
+
 def test_budget_survives_process_restart(isolated_database, tmp_path):
     cid = create(isolated_database)
     worker(

@@ -8,10 +8,12 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from travel_agent.models import ChatModel, ModelError
 from travel_agent.prompts import ASK_USER_TOOL
+from travel_agent.public_progress import tool_summary
 from travel_agent.runtime_context import (
     build_policy_message,
     build_runtime_message,
@@ -154,6 +156,7 @@ class AgentRunner:
         catalog = deepcopy(self.registry.catalog())
         system = build_policy_message()
         started = time.monotonic()
+        public_execution_id = str(uuid4())
         try:
             async with asyncio.timeout(self.limits.max_run_seconds):
                 await persist()
@@ -213,12 +216,32 @@ class AgentRunner:
                         return await fail(
                             "invalid_tool_call", "模型返回的工具调用格式无效，本次执行已停止。"
                         )
+                    content = assistant.get("content")
+                    if isinstance(content, str) and content.strip():
+                        await emit(
+                            {
+                                "type": "commentary",
+                                "content": content,
+                                "created_at": utc_now().isoformat(),
+                            }
+                        )
                     mixed_question = len(calls) != 1 and any(
                         call["function"]["name"] == "ask_user" for call in calls
                     )
-                    for call in calls:
+                    for index, call in enumerate(calls):
                         name = call["function"]["name"]
-                        await emit({"type": "tool_started", "tool_name": name, "status": "running"})
+                        summary = tool_summary(call)
+                        public_call_id = f"legacy/{public_execution_id}/model/{step}/tool/{index}"
+                        await emit(
+                            {
+                                "type": "tool_started",
+                                "tool_name": name,
+                                "call_id": public_call_id,
+                                "status": "running",
+                                "summary": summary,
+                                "created_at": utc_now().isoformat(),
+                            }
+                        )
                         if mixed_question:
                             result = _tool_result(
                                 call,
@@ -234,7 +257,10 @@ class AgentRunner:
                             {
                                 "type": "tool_finished",
                                 "tool_name": name,
+                                "call_id": public_call_id,
                                 "status": payload["status"],
+                                "summary": summary,
+                                "created_at": utc_now().isoformat(),
                             }
                         )
                         if name == "ask_user" and payload["status"] == "ok":

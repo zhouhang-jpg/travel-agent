@@ -31,6 +31,7 @@ from travel_agent.preference_tools import (
 )
 from travel_agent.preferences import PreferenceConflict, PreferenceNotFound, PreferenceService
 from travel_agent.prompts import ASK_USER_TOOL
+from travel_agent.public_progress import tool_summary
 from travel_agent.quality_tools import bind_comparison_protections, review_for_conversation
 from travel_agent.runner import MODEL_FAILURE_MESSAGES, AgentRunner, _tool_result
 from travel_agent.runtime_context import CONTEXT_VERSION, build_policy_message
@@ -226,6 +227,12 @@ class GraphRuntime:
         if calls:
             if not self.executor._valid_calls(calls):
                 return {"route": "final", "result": failure("invalid_tool_call")}
+            content = assistant.get("content")
+            if isinstance(content, str) and content.strip():
+                await self.facts.emit(
+                    lease, key + "/commentary", {"type": "commentary", "content": content}
+                )
+                await self.hit("commentary_saved_before_checkpoint")
             return {"route": "tools", "model_key": key}
         content = assistant.get("content")
         if payload["finish_reason"] == "tool_calls":
@@ -243,6 +250,7 @@ class GraphRuntime:
         async def execute_one(index, call):
             name = call["function"]["name"]
             key = f"{state['model_key']}/tool/{index}"
+            summary = tool_summary(call)
 
             async def progress(stage, **detail):
                 supplier = stage.startswith("supplier_")
@@ -257,6 +265,7 @@ class GraphRuntime:
                         else "tool_progress",
                         "tool_name": name,
                         "call_id": key,
+                        "summary": summary,
                         "status": stage.removeprefix("supplier_"),
                         **detail,
                     },
@@ -448,6 +457,7 @@ class GraphRuntime:
                     "type": "tool_finished",
                     "call_id": key,
                     "tool_name": name,
+                    "summary": summary,
                     "status": payload["status"],
                 },
             )

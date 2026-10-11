@@ -101,6 +101,32 @@ button { color: inherit; }
 .run-progress { display: flex; align-items: flex-start; gap: 13px; margin: 18px 0 4px 47px; color: #668365; }
 .run-progress strong { font-weight: 500; font-size: 12px; }
 .run-progress p { margin: 7px 0 0; font-size: 10px; color: #95a08e; }
+.run-activity { margin: -17px 0 32px 47px; color: #5d7764; font-size: 11px; min-width: 0; }
+.activity-heading { display: flex; align-items: center; gap: 9px; margin-bottom: 13px; color: #83977d; font-size: 10px; }
+.activity-heading-line { width: 17px; height: 1px; background: #adc1a5; }
+.activity-timeline { border-left: 1px solid #dde6d8; margin-left: 3px; padding-left: 18px; }
+.activity-commentary { position: relative; padding: 0 0 15px; color: #466550; }
+.activity-commentary p { font-size: 12px; line-height: 1.9; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.activity-commentary time { display: block; margin-top: 3px; font-size: 9px; color: #a0ab97; }
+.activity-dot { position: absolute; left: -22px; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: #8ca886; border: 2px solid #faf9f6; }
+.activity-tools { padding-bottom: 13px; }
+.activity-tools ul { list-style: none; margin: 0; padding: 0; }
+.activity-tool { display: flex; align-items: flex-start; gap: 9px; padding: 7px 0; min-width: 0; }
+.activity-mark { display: grid; place-items: center; color: #7d9974; width: 13px; height: 15px; flex-shrink: 0; margin-top: 1px; font-size: 11px; }
+.activity-mark.loader { width: 12px; height: 12px; margin-top: 3px; }
+.activity-tool-main { min-width: 0; flex: 1; display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 9px; line-height: 1.75; }
+.activity-tool-title { color: #667b60; font-size: 11px; }
+.activity-tool-summary { font-size: 11px; color: #8b9881; overflow-wrap: anywhere; }
+.activity-tool-state { color: #8d9b82; font-size: 9px; line-height: 1.9; flex-shrink: 0; padding-top: 1px; }
+.activity-tool.is-active .activity-tool-state, .activity-tool.is-active .activity-tool-title { color: #4c856a; }
+.activity-tool.has-error .activity-mark, .activity-tool.has-error .activity-tool-state { color: #ae805b; }
+.activity-earlier { margin: 0 0 3px; }
+.activity-earlier summary { cursor: pointer; color: #91a086; font-size: 10px; padding: 5px 0; width: fit-content; }
+.activity-earlier summary:hover { color: #52735c; }
+.activity-earlier ul { border-bottom: 1px solid #e6eadf; margin-bottom: 5px; padding-bottom: 5px; }
+.activity-wait { display: flex; gap: 10px; align-items: flex-start; color: #658464; font-size: 11px; line-height: 1.9; margin-top: 4px; }
+.activity-wait .loader { width: 12px; height: 12px; margin-top: 4px; }
+.activity-note { font-size: 9px; color: #a0aa96; line-height: 1.8; margin: 8px 0 0; }
 .loader { width: 15px; height: 15px; flex-shrink: 0; display: inline-block; border: 1.5px solid #d8e2cd; border-top-color: #658b69; border-radius: 50%; animation: spin 1.1s linear infinite; margin-top: 3px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .loading-conversation { display: flex; gap: 12px; justify-content: center; padding-top: 110px; font-size: 12px; color: #82947a; }
@@ -228,6 +254,12 @@ button { color: inherit; }
   .message-meta { margin-bottom: 8px; min-height: 25px; }
   .markdown h1 { font-size: 20px; } .markdown h2 { font-size: 17px; }
   .run-progress { margin-left: 38px; }
+  .run-activity { margin-left: 38px; margin-top: -11px; margin-bottom: 27px; }
+  .activity-timeline { padding-left: 13px; }
+  .activity-dot { left: -17px; }
+  .activity-tool-summary { width: 100%; font-size: 10px; }
+  .activity-tool { gap: 7px; }
+  .activity-tool-state { max-width: 70px; text-align: right; white-space: normal; }
 }
 @media (max-width: 410px) { .example-grid { grid-template-columns: 1fr; } .example-card { padding: 12px 14px; display: grid; grid-template-columns: 28px 1fr; column-gap: 9px; } .example-top { grid-row: span 2; margin: 0; align-items: flex-start; padding-top: 3px; } .example-top span:last-child { display: none; } .example-card p { margin-top: 3px; } .welcome { padding-top: 25px; } .welcome h1 { font-size: 34px; } .welcome h1 br { display: none; } .welcome-eyebrow { margin-bottom: 14px; } .welcome-copy { margin: 16px 0 24px; } .connection > span:not(.connection-dot) { display: none; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
