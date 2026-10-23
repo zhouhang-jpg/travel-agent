@@ -35,6 +35,7 @@ packages = ["src/travel_tools", "src/travel_agent"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 asyncio_mode = "auto"
 
 [tool.ruff]
