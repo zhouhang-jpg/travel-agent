@@ -12,15 +12,21 @@ import math
 import time
 from copy import deepcopy
 from dataclasses import replace
+from datetime import date, datetime
+from datetime import time as dt_time
 from hashlib import sha256
 from importlib.metadata import version
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 import httpx
 from pydantic import Field, model_validator
 
+from travel_agent.eval_checks import HiddenCheck, process_metrics, run_hidden_checks, summarize
+from travel_agent.eval_world.model import World, WorldClock, WorldFault, load_world
+from travel_agent.eval_world.tools import world_registry
 from travel_agent.models import ModelError, ModelReply, OpenAICompatibleModel
 from travel_agent.preferences import PreferenceValue
 from travel_agent.runtime_context import runtime_state
@@ -38,6 +44,7 @@ METRICS = (
     "clarification_relevance",
 )
 Mode = Literal["offline", "live_model", "live_providers"]
+WORLDS_DIR = Path(__file__).resolve().parents[2] / "evals" / "worlds"
 
 
 class EvalTurn(StrictModel):
@@ -93,10 +100,31 @@ class EvalCase(StrictModel):
     tags: list[str] = Field(default_factory=list)
     timezone: str = "Asia/Shanghai"
     turns: list[EvalTurn] = Field(min_length=1)
-    scripted_replies: list[ScriptedReply] = Field(min_length=1)
+    scripted_replies: list[ScriptedReply] = Field(default_factory=list)
     provider_replays: list[ProviderReplay] = Field(default_factory=list)
     initial_preferences: list[PreferenceValue] = Field(default_factory=list)
-    assertions: list[EvalAssertion] = Field(min_length=1)
+    assertions: list[EvalAssertion] = Field(default_factory=list)
+    # Sandbox-world fields (suite v2). Turn text may use {{D0}}-style date placeholders.
+    world_id: str | None = Field(default=None, pattern=r"^[a-z0-9_]+$")
+    category: str | None = None
+    difficulty: Literal["easy", "medium", "hard"] | None = None
+    faults: list[WorldFault] = Field(default_factory=list)
+    hidden_checks: list[HiddenCheck] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def runnable(self):
+        if self.world_id is None:
+            if not self.scripted_replies or not self.assertions:
+                raise ValueError("replay cases need scripted_replies and assertions")
+            if self.faults or self.hidden_checks:
+                raise ValueError("faults and hidden_checks require a world_id")
+        elif not (self.assertions or self.hidden_checks):
+            raise ValueError("world cases need hidden_checks or assertions")
+        if self.world_id and self.provider_replays:
+            raise ValueError("world cases read the world; provider_replays are not used")
+        if len({check.id for check in self.hidden_checks}) != len(self.hidden_checks):
+            raise ValueError("hidden check IDs must be unique within a case")
+        return self
 
 
 class EvalSuite(StrictModel):
@@ -460,31 +488,54 @@ def _usage(requests: list[dict], *, scripted: bool) -> dict:
     }
 
 
-async def run_case(case: EvalCase, *, mode: Mode, settings: Settings | None = None) -> dict:
+async def run_case(
+    case: EvalCase, *, mode: Mode, settings: Settings | None = None, world: World | None = None
+) -> dict:
     started = time.monotonic()
+    if case.world_id and (world is None or world.id != case.world_id):
+        raise ValueError("World case requires its loaded world")
+    clock = WorldClock(world) if world else None
+    turns = [
+        turn.model_copy(update={"content": clock.render(turn.content)}) if clock else turn
+        for turn in case.turns
+    ]
+    replies = (
+        [ScriptedReply.model_validate(clock.render(r.model_dump())) for r in case.scripted_replies]
+        if clock
+        else case.scripted_replies
+    )
+    world_tools = None
     with TemporaryDirectory(prefix="travel-agent-evaluation-") as directory:
         config = isolated_settings(
-            settings, Path(directory) / "evaluation.db", providers=mode == "live_providers"
+            settings,
+            Path(directory) / "evaluation.db",
+            providers=mode == "live_providers" and world is None,
         )
         async with httpx.AsyncClient(trust_env=False, follow_redirects=False) as network:
-            delegate = (
-                ScriptedModel(case.scripted_replies)
-                if mode == "offline"
-                else _live_model(config, network)
-            )
+            delegate = ScriptedModel(replies) if mode == "offline" else _live_model(config, network)
             model = RecordedModel(delegate)
-            registry = (
-                build_registry(config, network)
-                if mode == "live_providers"
-                else replay_registry(config, network, case)
-            )
+            if world:
+                registry, world_tools = world_registry(config, network, world, clock, case.faults)
+            elif mode == "live_providers":
+                registry = build_registry(config, network)
+            else:
+                registry = replay_registry(config, network, case)
             app = create_app(config, registry, model=model)
             observed = {
                 "case_id": case.id,
                 "description": case.description,
                 "tags": case.tags,
+                "category": case.category,
+                "difficulty": case.difficulty,
                 "turns": [],
             }
+            if world:
+                observed["world"] = {
+                    "id": world.id,
+                    "version": world.version,
+                    "today": clock.today.isoformat(),
+                    "anchor_D0": clock.anchor.isoformat(),
+                }
             async with app.router.lifespan_context(app):
                 observed["runtime_marks"] = []
 
@@ -532,7 +583,7 @@ async def run_case(case: EvalCase, *, mode: Mode, settings: Settings | None = No
                     response = await client.post("/conversations", json={"timezone": case.timezone})
                     response.raise_for_status()
                     cid = response.json()["id"]
-                    for index, turn in enumerate(case.turns):
+                    for index, turn in enumerate(turns):
                         before = (await client.get(f"/conversations/{cid}")).json()
                         if turn.when == "waiting_user" and before["status"] != "waiting_user":
                             observed["turns"].append(
@@ -563,6 +614,19 @@ async def run_case(case: EvalCase, *, mode: Mode, settings: Settings | None = No
                     observed["itineraries"] = (
                         await client.get(f"/conversations/{cid}/itineraries")
                     ).json()
+                    observed["itinerary_documents"] = []
+                    for entry in sorted(
+                        observed["itineraries"].get("items") or [],
+                        key=lambda item: item.get("revision", 0),
+                    ):
+                        version_response = await client.get(
+                            f"/conversations/{cid}/itineraries/{entry['id']}"
+                        )
+                        observed["itinerary_documents"].append(
+                            version_response.json().get("document")
+                            if version_response.status_code == 200
+                            else None
+                        )
                     observed["replayed_events"] = _sse_events(
                         (await client.get(f"/conversations/{cid}/events")).text
                     )
@@ -600,21 +664,33 @@ async def run_case(case: EvalCase, *, mode: Mode, settings: Settings | None = No
                         group["latest"] = item["result"]
                         group["latest_by_id"] = _result_id_index(item["result"])
     results = assertion_results(case, observed)
+    hidden = run_hidden_checks(case.hidden_checks, world, clock, observed) if world else None
+    if world_tools is not None:
+        observed["world_tool_calls"] = len(world_tools.calls)
+    scored = results + [item for item in hidden or [] if item["status"] != "not_applicable"]
     return {
         **observed,
         "mode": mode,
-        "provider_mode": "live" if mode == "live_providers" else "recorded_replay",
+        "provider_mode": "sandbox_world"
+        if world
+        else "live"
+        if mode == "live_providers"
+        else "recorded_replay",
         "assessment_scope": "runtime_contract"
         if mode == "offline"
+        else "model_against_sandbox_world"
+        if world
         else "model_against_recorded_evidence"
         if mode == "live_model"
         else "model_and_live_provider",
+        "hidden_checks": hidden,
+        "process": process_metrics({**observed, "model_requests": model.requests}),
         "run_outcome": observed["conversation"]["status"],
         "model_requests": model.requests,
         "usage": _usage(model.requests, scripted=mode == "offline"),
         "elapsed_seconds": time.monotonic() - started,
         "assertions": results,
-        "metrics": _metrics(results, mode),
+        "metrics": _metrics(scored, mode),
     }
 
 
@@ -624,6 +700,7 @@ async def run_evaluation(
     mode: Mode = "offline",
     settings: Settings | None = None,
     case_ids: list[str] | None = None,
+    worlds_dir: Path = WORLDS_DIR,
 ) -> dict:
     if mode not in {"offline", "live_model", "live_providers"}:
         raise ValueError("Unknown evaluation mode")
@@ -631,10 +708,31 @@ async def run_evaluation(
     unknown = set(case_ids or []) - {case.id for case in suite.cases}
     if unknown:
         raise ValueError(f"Unknown evaluation case IDs: {sorted(unknown)}")
+    worlds = {
+        world_id: load_world(Path(worlds_dir) / f"{world_id}.json")
+        for world_id in sorted({case.world_id for case in selected if case.world_id})
+    }
     records = []
     for case in selected:
+        if mode == "offline" and case.world_id and not case.scripted_replies:
+            # No scripted model for this case: it measures a real model, not contracts.
+            records.append(
+                {
+                    "case_id": case.id,
+                    "mode": mode,
+                    "run_outcome": "skipped_offline",
+                    "hidden_checks": [],
+                    "metrics": {
+                        metric: {"assertion_status": "unknown", "agent_quality_status": "unknown"}
+                        for metric in METRICS
+                    },
+                }
+            )
+            continue
         try:
-            records.append(await run_case(case, mode=mode, settings=settings))
+            records.append(
+                await run_case(case, mode=mode, settings=settings, world=worlds.get(case.world_id))
+            )
         except Exception as exc:
             # Never include configuration, URLs, keys or raw provider error payloads.
             records.append(
@@ -643,6 +741,7 @@ async def run_evaluation(
                     "mode": mode,
                     "run_outcome": "harness_error",
                     "error_type": type(exc).__name__,
+                    **({"hidden_checks": []} if case.world_id else {}),
                     "metrics": {
                         metric: {"assertion_status": "unknown", "agent_quality_status": "unknown"}
                         for metric in METRICS
@@ -659,5 +758,65 @@ async def run_evaluation(
         if mode == "offline"
         else "Only explicit structured oracles are scored; other quality "
         "and final prose claims remain unknown.",
+        "worlds": {
+            world_id: {
+                "version": world.version,
+                "hash": sha256(world.model_dump_json().encode()).hexdigest(),
+            }
+            for world_id, world in worlds.items()
+        },
+        "summary": summarize(records),
+        "cases": records,
+    }
+
+
+def rescore_report(report: dict, suite: EvalSuite, worlds_dir: Path = WORLDS_DIR) -> dict:
+    """Recompute hidden checks from stored observations; no model or tool requests.
+
+    Lets checker fixes be applied to an existing live report without paying for a rerun.
+    The world clock is rebuilt from the recorded day, so D0 must match the original run.
+    """
+    cases = {case.id: case for case in suite.cases}
+    worlds: dict[str, World] = {}
+    records = []
+    for record in report["cases"]:
+        case = cases.get(record["case_id"])
+        if (
+            case is None
+            or not case.world_id
+            or not record.get("world")
+            or record.get("run_outcome") in ("harness_error", "skipped_offline")
+        ):
+            records.append(record)
+            continue
+        world = worlds.setdefault(
+            case.world_id, load_world(Path(worlds_dir) / f"{case.world_id}.json")
+        )
+        recorded = record["world"]
+        clock = WorldClock(
+            world,
+            now=datetime.combine(
+                date.fromisoformat(recorded["today"]), dt_time(12), tzinfo=ZoneInfo(world.timezone)
+            ),
+        )
+        if clock.anchor.isoformat() != recorded["anchor_D0"]:
+            raise ValueError(f"{case.id}: world anchor changed since the recorded run")
+        hidden = run_hidden_checks(case.hidden_checks, world, clock, record)
+        scored = record.get("assertions", []) + [
+            h for h in hidden if h["status"] != "not_applicable"
+        ]
+        records.append(
+            {
+                **record,
+                "hidden_checks": hidden,
+                "metrics": _metrics(scored, record["mode"]),
+                "world_changed_since_run": recorded.get("version") != world.version,
+            }
+        )
+    return {
+        **report,
+        "rescored_at": utc_now().isoformat(),
+        "rescored_suite_hash": sha256(suite.model_dump_json().encode()).hexdigest(),
+        "summary": summarize(records),
         "cases": records,
     }
