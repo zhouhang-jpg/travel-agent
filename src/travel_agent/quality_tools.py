@@ -8,6 +8,7 @@ from travel_agent.durable_storage import Journal
 from travel_agent.itineraries import ItineraryVersion, PlanConflict, evidence_review, source_bank
 from travel_agent.itinerary_schema import ItineraryDocument
 from travel_agent.plan_grounding import ReviewItineraryInput, review_itinerary
+from travel_tools.schemas.itinerary import arrangement_view
 from travel_tools.schemas.plan_comparison import CompareItineraryOptionsInput
 
 
@@ -25,8 +26,13 @@ async def bind_comparison_protections(service, conversation_id, arguments):
         for section in ("items", "lodging"):
             field = "protected_" + section
             provided = {entry["id"]: entry for entry in basis.get(field, [])}
+            # Resolve stored compact source_ids through the version's own catalog;
+            # the option itinerary resolves its references the same way.
             provided.update(
-                (entry["id"], deepcopy(entry))
+                (
+                    entry["id"],
+                    arrangement_view(section, entry, current.document.get("source_catalog")),
+                )
                 for entry in current.document[section]
                 if entry.get("protection")
             )

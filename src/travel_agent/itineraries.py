@@ -17,7 +17,7 @@ from travel_agent.tool_arguments import edit_arguments, parse_arguments
 from travel_agent.tool_encoding import decode_tool_result
 from travel_tools.common import Source, utc_now
 from travel_tools.itinerary import validate_itinerary
-from travel_tools.schemas.itinerary import LodgingStay, ScheduledItem
+from travel_tools.schemas.itinerary import arrangement_view
 from travel_tools.schemas.quotes import PriceEvidence
 
 
@@ -364,6 +364,20 @@ def verify_user(reference, users, *, after=None):
         )
 
 
+def field_differences(before, after, path=""):
+    """Dotted paths whose values differ, limited to the protected entry itself."""
+    if isinstance(before, dict) and isinstance(after, dict):
+        found = []
+        for key in [*before, *(k for k in after if k not in before)]:
+            found.extend(
+                field_differences(before.get(key), after.get(key), f"{path}.{key}".lstrip("."))
+            )
+        return found
+    if before == after:
+        return []
+    return [{"field": path, "before": deepcopy(before), "after": deepcopy(after)}]
+
+
 def protect_previous(document, previous, request, users):
     for requirement in document.requirements:
         if requirement.user_reference:
@@ -379,23 +393,42 @@ def protect_previous(document, previous, request, users):
     for release in releases.values():
         verify_user(release.user_reference, users, after=previous.journal_seq)
     conflicts = []
+    candidate_catalog = document.model_dump(mode="json")["source_catalog"]
     for section in ("items", "lodging"):
-        candidates = {i["id"]: i for i in document.model_dump(mode="json")[section]}
+        candidates = {i.id: i for i in getattr(document, section)}
         for item in old[section]:
-            if not item.get("protection"):
+            if not item.get("protection") or (section, item["id"]) in releases:
                 continue
+            before = arrangement_view(section, item, old.get("source_catalog"))
             following = candidates.get(item["id"])
-            normalized = (
-                (ScheduledItem if section == "items" else LodgingStay)
-                .model_validate(item)
-                .model_dump(mode="json")
-            )
-            if following != normalized and (section, item["id"]) not in releases:
-                conflicts.append({"section": section, "id": item["id"], "title": item.get("title")})
+            if following is None:
+                conflicts.append(
+                    {
+                        "section": section,
+                        "id": item["id"],
+                        "title": item.get("title"),
+                        "change": "removed",
+                        "fields": [],
+                    }
+                )
+                continue
+            after = arrangement_view(section, following, candidate_catalog)
+            if after != before:
+                conflicts.append(
+                    {
+                        "section": section,
+                        "id": item["id"],
+                        "title": item.get("title"),
+                        "change": "modified",
+                        "fields": field_differences(before, after),
+                    }
+                )
     if conflicts:
         raise PlanConflict(
             "locked_item_conflict",
-            "修改涉及已锁定或用户自报已订安排；请保留或向用户澄清。",
+            "修改涉及已锁定或用户自报已订安排，未保存。conflicts列出每个受保护条目的id和"
+            "不一致字段：请把这些字段恢复为before值（局部修改时不要在patch里改写该条目），"
+            "或在用户原话明确授权后使用release_protections，否则向用户澄清。",
             conflicts,
         )
     conditions = {r.id: r for r in document.requirements}

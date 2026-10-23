@@ -1,5 +1,6 @@
 """Evidence-driven consistency checks; these schemas do not plan an itinerary."""
 
+import json
 from datetime import UTC, date
 from typing import Annotated, Literal
 
@@ -163,6 +164,33 @@ class LodgingStay(StrictModel):
         if self.check_out <= self.check_in:
             raise ValueError("check_out must be after check_in")
         return self
+
+
+def arrangement_view(section, entry, catalog=None):
+    """Comparable form of a scheduled item or stay for protection checks.
+
+    Stored versions keep compact ``source_ids`` while a validated document has
+    them resolved into ``sources``, sometimes repeating an inline copy. Both
+    spellings name the same evidence, so sources are resolved through the
+    entry's own document catalog and compared as a set. Every other field must
+    still match exactly. Unknown source IDs stay unresolved and therefore differ.
+    """
+    model = ScheduledItem if section == "items" else LodgingStay
+    data = model.model_validate(entry).model_dump(mode="json")
+    duration = data.get("travel_duration")
+    if duration:
+        catalog = catalog or {}
+        found = [*duration["sources"]]
+        unresolved = []
+        for identifier in duration["source_ids"]:
+            if identifier in catalog:
+                found.append(Source.model_validate(catalog[identifier]).model_dump(mode="json"))
+            else:
+                unresolved.append(identifier)
+        unique = {json.dumps(s, sort_keys=True, ensure_ascii=False): s for s in found}
+        duration["sources"] = [unique[key] for key in sorted(unique)]
+        duration["source_ids"] = unresolved
+    return data
 
 
 class CostBasis(StrictModel):

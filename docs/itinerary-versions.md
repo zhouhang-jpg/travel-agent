@@ -34,6 +34,10 @@ protection区分明确locked和user_reported_booked。必须引用真实用户�
 模型生成的普通安排默认不锁定。保护项被改变、删掉或清除保护时，工具拒绝候选，当前
 版本保持不动；release_protections须引用在当前版本之后接受的用户授权。
 旧版本缺少后加可选字段时规范化后比较，避免JSON默认值升级误判为修改锁定项。
+travel_duration的来源按各自文档source_catalog解析为来源集合再比较：已存版本保留紧凑
+source_ids，而候选校验会展开为sources，两种写法指向同一来源不算修改；未知ID或换了
+来源仍算修改。locked_item_conflict逐条返回受保护条目section/id/title、removed或modified，
+以及不一致字段的before/after（只含该条目自身字段），供模型恢复原值或向用户澄清。
 用户自报已订只代表用户信息，UI明确“你告知已预订 · 未核验”，不会调用取消/下单接口。
 
 任意自然语言条件或解除授权的**语义理解仍由LLM负责**。服务验证引用存在、逐字一致、

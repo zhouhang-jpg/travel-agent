@@ -6,7 +6,7 @@ from decimal import Decimal
 from itertools import combinations
 
 from travel_tools.itinerary import validate_itinerary
-from travel_tools.schemas.itinerary import ValidateItineraryInput
+from travel_tools.schemas.itinerary import ValidateItineraryInput, arrangement_view
 from travel_tools.schemas.plan_comparison import (
     ComparedOption,
     CompareItineraryOptionsInput,
@@ -168,7 +168,10 @@ def _basis_checks(plan, basis: ComparisonBasis):
     ):
         entries = {entry.id: entry for entry in getattr(plan, name)}
         for entry in protected:
-            matches = entries.get(entry.id) == entry
+            following = entries.get(entry.id)
+            matches = following is not None and arrangement_view(
+                name, following
+            ) == arrangement_view(name, entry)
             checks.append(
                 ComparisonCheck(
                     category="protection",

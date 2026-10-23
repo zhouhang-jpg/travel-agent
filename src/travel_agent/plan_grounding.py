@@ -12,7 +12,7 @@ from pydantic import AwareDatetime, Field, model_validator
 
 from travel_agent.itinerary_schema import ItineraryDocument
 from travel_tools.common import StrictModel, utc_now
-from travel_tools.schemas.itinerary import Identifier, UserReference
+from travel_tools.schemas.itinerary import Identifier, UserReference, arrangement_view
 from travel_tools.schemas.quotes import Money
 
 ReviewStatus = Literal["pass", "fail", "unknown"]
@@ -192,7 +192,11 @@ def review_itinerary(
                 check_reference(f"{section}:{item.id}", item.protection.user_reference)
         if previous_document:
             for old in getattr(previous_document, section):
-                if old.protection and entries.get(old.id) != old:
+                following = entries.get(old.id)
+                if old.protection and (
+                    following is None
+                    or arrangement_view(section, following) != arrangement_view(section, old)
+                ):
                     references.append(
                         _finding(
                             "protection",
