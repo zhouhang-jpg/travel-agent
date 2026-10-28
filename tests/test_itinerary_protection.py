@@ -167,3 +167,37 @@ def test_arrangement_view_resolves_references_but_keeps_real_differences():
     other = {**SOURCE, "url": "https://example.test/other"}
     assert arrangement_view("items", item, {"s": other}) != compact
     assert arrangement_view("items", item, {}) != compact  # unknown ID stays visible
+
+
+async def test_missing_base_and_wrapped_arguments_are_not_reported_as_stale(tmp_path):
+    model = ReplayModel()
+    async with api_client(tmp_path, model) as (client, service):
+        cid = (await client.post("/conversations", json={})).json()["id"]
+        first = await setup_plan(client, model, cid)
+        edit = {
+            "base_version_id": first["id"],
+            "patch": {"items": [{"id": "day2", "title": "第二天下午博物馆"}]},
+            "change_reason": "第二天下午改室内",
+        }
+        missing = {k: v for k, v in edit.items() if k != "base_version_id"}
+        wrapped = {"arguments": json.dumps(edit, ensure_ascii=False)}
+        old = {**edit, "base_version_id": "older-version"}
+        model.responses = [
+            reply(missing, "missing"),
+            reply(wrapped, "wrapped"),
+            reply(old, "old"),
+            final("未能保存"),
+        ]
+        await send(client, cid, "第二天下午改室内", "edit-request")
+        assert (await client.get(f"/conversations/{cid}")).json()["itinerary"] == first
+        missing_result, wrapped_result, old_result = await save_results(service, cid, 3)
+        assert missing_result["error"]["code"] == "missing_base_version_id"
+        assert missing_result["data"]["conflicts"] == [{"current_version_id": first["id"]}]
+        assert wrapped_result["error"]["code"] == "invalid_save_arguments"
+        assert wrapped_result["data"]["conflicts"] == [
+            {"unexpected_fields": ["arguments"], "current_version_id": first["id"]}
+        ]
+        assert old_result["error"]["code"] == "stale_itinerary_version"
+        assert old_result["data"]["conflicts"] == [
+            {"base_version_id": "older-version", "current_version_id": first["id"]}
+        ]

@@ -734,9 +734,29 @@ class ItineraryService:
         from travel_agent.durable_storage import Journal
 
         previous = await self.current(lease["conversation_id"])
-        if arguments.get("base_version_id") != (previous.id if previous else None):
+        current_id = previous.id if previous else None
+        unexpected = sorted(set(arguments) - SaveItineraryInput.model_fields.keys())
+        if unexpected:
+            # e.g. {"arguments": "<json string>"}: never unwrap or guess the intent.
             raise PlanConflict(
-                "stale_itinerary_version", "修改基于旧版本，请使用当前版本并重新检查影响。"
+                "invalid_save_arguments",
+                "save_itinerary参数需直接放在顶层（base_version_id、document/patch/"
+                "argument_edits、change_reason等），不要包在额外字段或JSON字符串里；未保存。",
+                [{"unexpected_fields": unexpected, "current_version_id": current_id}],
+            )
+        supplied = arguments.get("base_version_id")
+        if supplied != current_id:
+            if supplied is None:
+                raise PlanConflict(
+                    "missing_base_version_id",
+                    "缺少base_version_id；修改和retry_from_call_id修正重试都要填写"
+                    "current_version_id，未保存。",
+                    [{"current_version_id": current_id}],
+                )
+            raise PlanConflict(
+                "stale_itinerary_version",
+                "修改基于旧版本，请使用当前版本并重新检查影响。",
+                [{"base_version_id": supplied, "current_version_id": current_id}],
             )
         async with self.store.sessions() as session:
             records = (
