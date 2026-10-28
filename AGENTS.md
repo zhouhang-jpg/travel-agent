@@ -58,7 +58,7 @@
 - 当前会话支持行程版本、按稳定id的局部patch、用户锁定/自报已订保护、版本差异与已知/参考小计变化。复用既有validate_itinerary/schema/source_catalog。草案只有本轮成功交付才发布，追问/失败保留上版；旧版只读查看。来源可用真实ID导入，旧报价/条件不符/费用口径缺失标待复核。实现与语义验证边界见docs/itinerary-versions.md；不承诺所有方案现实可行或供应商库存已核验。
 - 已接入compare_itinerary_options，按共同约束确定性比较已提供候选与Pareto取舍；未知/参考费用、税费或必要转场缓冲不全保留待复核，不表示全市场最优。LangGraph会话会自动带入当前已发布版本保护项。
 - LangGraph会话提供只读review_itinerary，核对候选/本轮草案/当前版本的真实用户引用、需求关联与原子结论；模型的需求满足声明和任意来源文字仍为语义未知。报价金额/口径匹配不证明所选班次、酒店或房型身份绑定。来源库只接受已审核供应商工具，比较或复核回显不引入实查证据。
-- 统一评测入口scripts/evaluate_agent.py走正式LangGraph HTTP/SSE与隔离临时库；offline只验证脚本运行契约，真实模型和真实供应商需显式选择，没有独立语义oracle的指标保留unknown。当前工具及评测边界见docs/agent-quality.md。
+- 统一评测入口scripts/evaluate_agent.py走正式LangGraph HTTP/SSE与隔离临时库；offline只验证脚本运行契约，真实模型和真实供应商需显式选择，没有独立语义oracle的指标保留unknown。当前工具及评测边界见docs/agent-quality.md。用户于2026-10-22确认量化评测方案docs/evaluation-plan.md；P1已接入合成沙盒世界（evals/worlds，相对日期锚定真实时钟）、生产Schema的world模式工具与只读结构化证据的隐藏检查，真实模型可自由查询；未保存行程时相关检查为unknown，不按工具顺序、提问次数或措辞评分。
 
 ## 已确认的用户偏好档案
 
