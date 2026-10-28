@@ -11,7 +11,7 @@ import httpx
 from pydantic import ValidationError
 
 from travel_tools.common import Source, ToolFailure
-from travel_tools.scheduling import supplier_slot
+from travel_tools.scheduling import report_supplier_failure, supplier_slot
 from travel_tools.schemas.places import (
     AmapCoordinates,
     GetPlaceDetailsInput,
@@ -224,7 +224,12 @@ class AmapAdapter:
         if data.get("status") == "0":
             code = data.get("infocode")
             if code in {"10003", "10004", "10010", "10014", "10019"}:
-                raise ToolFailure("provider_rate_limited", "Amap quota or rate limit reached", True)
+                failure = ToolFailure(
+                    "provider_rate_limited", "Amap quota or rate limit reached", True
+                )
+                # 10003 is the daily quota; it will not recover within minutes.
+                failure.quota_exhausted = code == "10003"
+                raise report_supplier_failure("amap", failure)
             if code in {
                 "10001",
                 "10002",
@@ -236,7 +241,10 @@ class AmapAdapter:
                 "10012",
                 "10013",
             }:
-                raise ToolFailure("provider_auth", "Amap key, permissions or access rules rejected")
+                raise report_supplier_failure(
+                    "amap",
+                    ToolFailure("provider_auth", "Amap key, permissions or access rules rejected"),
+                )
             raise ToolFailure(
                 "provider_error", "Amap rejected the request", code in {"10015", "10016"}
             )

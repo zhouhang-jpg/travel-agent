@@ -13,6 +13,7 @@ import httpx
 
 from travel_tools.common import Source, ToolFailure, utc_now
 from travel_tools.providers.http import bounded_json_request
+from travel_tools.scheduling import report_supplier_failure
 from travel_tools.schemas.quotes import (
     InventoryEvidence,
     Money,
@@ -166,10 +167,13 @@ class JuheTrainAdapter:
                 if code in (10011, 10012, 10013)
                 else "provider_rejected"
             )
-            raise ToolFailure(
-                category,
-                f"Juhe train rejected the query (code {code}).",
-                retryable=code in (10011, 10020),
+            raise report_supplier_failure(
+                "juhe_train",
+                ToolFailure(
+                    category,
+                    f"Juhe train rejected the query (code {code}).",
+                    retryable=code in (10011, 10020),
+                ),
             )
         queried_at = utc_now()
         source = Source(provider="juhe_train", url=JUHE_TRAIN_DOCS, retrieved_at=queried_at)

@@ -14,8 +14,9 @@ from playwright.async_api import Error as BrowserError
 from playwright.async_api import TimeoutError as BrowserTimeout
 from playwright.async_api import async_playwright
 
+from travel_tools.circuit import BROWSER_RUNTIME
 from travel_tools.common import ToolFailure, utc_now
-from travel_tools.scheduling import force_refresh, supplier_slot
+from travel_tools.scheduling import force_refresh, supplier_guard, supplier_slot
 
 
 class BrowserQueryRuntime:
@@ -39,7 +40,9 @@ class BrowserQueryRuntime:
             result = deepcopy(cached[1])
             result["cache_hit"] = True
             return result
-        async with supplier_slot(key.split(":", 1)[0]):
+        # Site breaker first, then the shared local browser; the browser breaker
+        # only counts launch failures, never a site's own timeouts or blocks.
+        async with supplier_slot(key.split(":", 1)[0]), supplier_guard(BROWSER_RUNTIME):
             async with self._slots:
                 if self._closed:
                     raise ToolFailure("provider_unavailable", "Browser query runtime is closed.")
@@ -94,7 +97,10 @@ class BrowserQueryRuntime:
             async with async_playwright() as playwright:
                 try:
                     async with asyncio.timeout(self.timeout):
-                        browser = await playwright.chromium.launch(headless=True)
+                        try:
+                            browser = await playwright.chromium.launch(headless=True)
+                        except BrowserError as error:
+                            raise _launch_failure(error) from None
                         context = await browser.new_context(
                             locale="zh-CN",
                             timezone_id="Asia/Shanghai",
@@ -118,10 +124,7 @@ class BrowserQueryRuntime:
             raise ToolFailure("provider_timeout", "Public page query timed out.", True) from None
         except BrowserError as error:
             if "Executable doesn't exist" in str(error):
-                raise ToolFailure(
-                    "provider_unavailable",
-                    "Install the independent browser with uv run playwright install chromium.",
-                ) from None
+                raise _launch_failure(error) from None
             raise ToolFailure(
                 "provider_browser_error",
                 "Public page could not be queried; browser/network unavailable.",
@@ -132,6 +135,20 @@ class BrowserQueryRuntime:
         self._closed = True
         self._cache.clear()
         await asyncio.to_thread(self._executor.shutdown, wait=True, cancel_futures=True)
+
+
+def _launch_failure(error: BaseException) -> ToolFailure:
+    if "Executable doesn't exist" in str(error):
+        # Missing install is configuration, not an outage: never opens a breaker.
+        failure = ToolFailure(
+            "provider_unavailable",
+            "Install the independent browser with uv run playwright install chromium.",
+        )
+        failure.breaker_scope = "configuration"
+        return failure
+    failure = ToolFailure("provider_browser_error", "The local browser could not be started.", True)
+    failure.breaker_scope = BROWSER_RUNTIME
+    return failure
 
 
 def _loop():

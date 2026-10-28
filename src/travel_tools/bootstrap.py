@@ -4,6 +4,7 @@ from hashlib import sha256
 
 import httpx
 
+from travel_tools.circuit import BreakerPolicy, CircuitBreakers
 from travel_tools.config import Settings, has_secret
 from travel_tools.itinerary import validate_itinerary
 from travel_tools.opening_hours import OpeningHoursLookup
@@ -36,6 +37,14 @@ from travel_tools.schemas.web_search import SearchWebInput, SearchWebOutput
 from travel_tools.schemas.webpage import FetchWebpageInput, FetchWebpageOutput
 from travel_tools.webpage import WebpageFetcher
 
+SINGLE_SOURCE = {
+    "search_places": "amap",
+    "get_place_details": "amap",
+    "get_routes": "amap",
+    "get_weather": "qweather",
+    "search_web": "bocha",
+}
+
 
 def build_registry(settings: Settings, client: httpx.AsyncClient) -> ToolRegistry:
     registry = ToolRegistry(
@@ -45,7 +54,17 @@ def build_registry(settings: Settings, client: httpx.AsyncClient) -> ToolRegistr
             {
                 name: SupplierPolicy(limit.concurrency, limit.requests_per_second)
                 for name, limit in settings.supplier_limits.items()
-            }
+            },
+            CircuitBreakers(
+                BreakerPolicy(
+                    enabled=settings.circuit_breaker_enabled,
+                    failure_threshold=settings.circuit_failure_threshold,
+                    open_seconds=settings.circuit_open_seconds,
+                    max_open_seconds=settings.circuit_max_open_seconds,
+                    blocked_open_seconds=settings.circuit_blocked_open_seconds,
+                    auth_open_seconds=settings.circuit_auth_open_seconds,
+                )
+            ),
         ),
         cache_scope=sha256(
             (
@@ -140,6 +159,7 @@ def build_registry(settings: Settings, client: httpx.AsyncClient) -> ToolRegistr
                 reason=None if adapter else reason,
                 requires_external_service=True,
                 execution="parallel_read",
+                routes=((SINGLE_SOURCE[name], (SINGLE_SOURCE[name],)),),
                 cache_seconds=(
                     settings.cache_weather_seconds
                     if name == "get_weather"

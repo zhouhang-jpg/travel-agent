@@ -4,6 +4,7 @@ from pathlib import Path
 
 import httpx
 
+from travel_tools.circuit import BROWSER_RUNTIME
 from travel_tools.config import Settings, has_secret
 from travel_tools.providers import flyai
 from travel_tools.providers.browser_runtime import BrowserQueryRuntime
@@ -67,7 +68,8 @@ def register_quote_tools(
     registry: ToolRegistry, settings: Settings, client: httpx.AsyncClient
 ) -> None:
     """Wire adapters without installing software, executing the CLI or sending requests."""
-    flyai_client, flyai_reason = _flyai_client(settings, registry.timeout_seconds)
+    # Below the tool deadline so FlyAI's own timeout, not cancellation, is recorded.
+    flyai_client, flyai_reason = _flyai_client(settings, registry.timeout_seconds * 0.8)
     flight_adapters = {"flyai": flyai.FlyAIFlightAdapter(flyai_client)} if flyai_client else {}
     hotels = flyai.FlyAIHotelAdapter(flyai_client) if flyai_client else None
     train_adapters = {"flyai": flyai.FlyAITrainAdapter(flyai_client)} if flyai_client else {}
@@ -120,6 +122,26 @@ def register_quote_tools(
         else None
     )
 
+    def route(provider):
+        supplier = {"juhe": "juhe_train", "jisu": "jisu_coach"}.get(provider, provider)
+        if provider in {"12306", "ceair", "csair", "bus365"}:
+            return provider, (BROWSER_RUNTIME, supplier)
+        return provider, (supplier,)
+
+    train_chain = [primary] + ([fallback] if fallback not in {"none", primary} else [])
+    routes = {
+        "search_flights": (tuple(route(name) for name in flight_adapters), "model"),
+        "search_trains": (
+            tuple(route(name) for name in train_chain if name in train_adapters),
+            "auto",
+        ),
+        "search_coaches": (
+            (route(coach_provider),) if coaches is not None else (),
+            "auto",
+        ),
+        "search_hotels": ((route("flyai"),), "auto"),
+    }
+
     for name, input_type, output_type, adapter, description, reason in [
         (
             "search_flights",
@@ -168,5 +190,7 @@ def register_quote_tools(
                 requires_external_service=True,
                 execution="parallel_read",
                 cache_seconds=settings.cache_quotes_seconds,
+                routes=routes[name][0],
+                route_choice=routes[name][1],
             )
         )

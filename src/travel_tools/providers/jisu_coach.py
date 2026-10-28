@@ -7,6 +7,7 @@ import httpx
 
 from travel_tools.common import Source, ToolFailure, utc_now
 from travel_tools.providers.http import bounded_json_request
+from travel_tools.scheduling import report_supplier_failure
 from travel_tools.schemas.quotes import (
     CoachOffer,
     InventoryEvidence,
@@ -78,10 +79,13 @@ class JisuCoachAdapter:
                 if code in (104, 106)
                 else "provider_rejected"
             )
-            raise ToolFailure(
-                category,
-                f"Jisu coach rejected the query (code {code}).",
-                retryable=code in (106, 107),
+            raise report_supplier_failure(
+                "jisu_coach",
+                ToolFailure(
+                    category,
+                    f"Jisu coach rejected the query (code {code}).",
+                    retryable=code in (106, 107),
+                ),
             )
         queried_at = utc_now()
         source = Source(provider="jisu_coach", url=JISU_COACH_DOCS, retrieved_at=queried_at)

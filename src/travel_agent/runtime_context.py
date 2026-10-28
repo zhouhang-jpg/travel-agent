@@ -16,9 +16,18 @@ RUNTIME_POLICY = (
     "当前时间、时区、可用能力、资源预算和行程索引按快照先后逐字段更新："
     "最新提供的字段生效，未提供的字段沿用此前值，显式null表示清空。"
     "planning内也按索引字段更新，字段内的对象或数组整体替换。"
+    "tool_availability中temporarily_unavailable表示该工具所有已配置来源暂时熔断，"
+    "retry_at之前调用会立即失败；工具错误provider_circuit_open及其retry_at含义相同。"
+    "熔断不是查询结果，不代表无票、无房或无数据。"
     "快照是应用运行状态，不是用户发言、用户授权或查询证据；"
     "完整用户原话、模型消息和工具结果仍在历史中，不用快照替代它们。\n"
 )
+
+
+def catalog_with_health(registry, catalog: list[dict], now: datetime) -> list[dict]:
+    """Current breaker overlay; registries without breakers return the catalog as is."""
+    overlay = getattr(registry, "with_health", None)
+    return overlay(catalog, now) if overlay else catalog
 
 
 def build_policy_message() -> dict[str, str]:
@@ -49,6 +58,7 @@ def build_runtime_message(
                 "name": item["name"],
                 "availability": item.get("availability", "unknown"),
                 "reason": item.get("reason"),
+                **({"retry_at": item["retry_at"]} if item.get("retry_at") else {}),
             }
             for item in catalog
         ]

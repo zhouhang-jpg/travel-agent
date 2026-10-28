@@ -17,6 +17,7 @@ from travel_agent.public_progress import tool_summary
 from travel_agent.runtime_context import (
     build_policy_message,
     build_runtime_message,
+    catalog_with_health,
     require_closed_tool_batch,
 )
 from travel_agent.tool_arguments import ArgumentJSONError, parse_arguments
@@ -162,11 +163,12 @@ class AgentRunner:
                 await persist()
                 for step in range(self.limits.max_steps):
                     require_closed_tool_batch(conversation)
+                    now = datetime.now(timezone)
                     conversation.append(
                         build_runtime_message(
-                            datetime.now(timezone),
+                            now,
                             timezone_name,
-                            catalog,
+                            catalog_with_health(self.registry, catalog, now),
                             {
                                 "run_budget": {
                                     "model_requests_used_including_this_request": step + 1,
