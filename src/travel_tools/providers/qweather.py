@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from travel_tools.common import Coordinates, Source, ToolFailure, utc_now
 from travel_tools.providers.http import bounded_json_request
+from travel_tools.scheduling import report_supplier_failure
 from travel_tools.schemas.weather import (
     DailyWeather,
     GetWeatherInput,
@@ -293,14 +294,17 @@ class QWeatherAdapter:
     def _indices(self, args, query, raw, path, retrieved):
         code = raw.get("code")
         if code != "200":
-            raise ToolFailure(
-                "provider_authentication"
-                if code in ("401", "402", "403")
-                else "provider_rate_limited"
-                if code == "429"
-                else "provider_rejected",
-                "QWeather indices query was rejected; no indices obtained.",
-                code == "429",
+            raise report_supplier_failure(
+                "qweather",
+                ToolFailure(
+                    "provider_authentication"
+                    if code in ("401", "402", "403")
+                    else "provider_rate_limited"
+                    if code == "429"
+                    else "provider_rejected",
+                    "QWeather indices query was rejected; no indices obtained.",
+                    code == "429",
+                ),
             )
         records = raw["daily"]
         if not isinstance(records, list) or not records:

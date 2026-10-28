@@ -13,6 +13,12 @@ MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 REQUEST_TIMEOUT_SECONDS = 15
 
 
+def retry_after_seconds(response: httpx.Response) -> float | None:
+    """Only the delta-seconds form; HTTP dates are ignored rather than guessed."""
+    value = response.headers.get("retry-after", "").strip()
+    return float(value) if value.isdigit() and int(value) > 0 else None
+
+
 async def bounded_json_request(
     client: httpx.AsyncClient,
     method: str,
@@ -50,11 +56,13 @@ async def bounded_json_request(
                         if status == 429
                         else "provider_http_error"
                     )
-                    raise ToolFailure(
+                    failure = ToolFailure(
                         code,
                         f"{provider} request failed (HTTP {status}).",
                         retryable=status == 429 or status >= 500,
                     )
+                    failure.retry_after_seconds = retry_after_seconds(response)
+                    raise failure
                 content = bytearray()
                 async for chunk in response.aiter_bytes(chunk_size=65536):
                     content.extend(chunk)

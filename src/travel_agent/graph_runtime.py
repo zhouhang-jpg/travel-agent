@@ -6,9 +6,11 @@ import json
 import time
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import datetime
 from hashlib import sha256
 from typing import TypedDict
 from uuid import NAMESPACE_URL, uuid5
+from zoneinfo import ZoneInfo
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
@@ -161,8 +163,13 @@ class GraphRuntime:
                 planning["user_preferences"] = await self.preferences.context(
                     lease["conversation_id"]
                 )
+                catalog = runtime_context.catalog_with_health(
+                    self.registry,
+                    self.manifest["catalog"],
+                    datetime.now(ZoneInfo(lease["timezone"])),
+                )
                 history, snapshot = await self.facts.append_runtime_context(
-                    lease, key, self.manifest["catalog"], planning, self.limits
+                    lease, key, catalog, planning, self.limits
                 )
                 await self.hit("context_saved_before_model")
                 effect = await self.facts.effect(key)

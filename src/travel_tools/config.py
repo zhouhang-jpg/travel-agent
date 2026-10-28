@@ -37,6 +37,12 @@ class Settings(BaseSettings):
             "jisu_coach": SupplierLimit(),
         }
     )
+    circuit_breaker_enabled: bool = True
+    circuit_failure_threshold: int = Field(default=3, ge=1, le=20)
+    circuit_open_seconds: float = Field(default=60, ge=1, le=3600)
+    circuit_max_open_seconds: float = Field(default=600, ge=1, le=7200)
+    circuit_blocked_open_seconds: float = Field(default=600, ge=1, le=7200)
+    circuit_auth_open_seconds: float = Field(default=1800, ge=1, le=86400)
     cache_places_seconds: float = Field(default=600, ge=0, le=3600)
     cache_weather_seconds: float = Field(default=120, ge=0, le=600)
     cache_routes_seconds: float = Field(default=60, ge=0, le=300)

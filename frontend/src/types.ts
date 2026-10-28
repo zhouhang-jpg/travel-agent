@@ -97,7 +97,7 @@ export type AgentEvent = ({ event_seq?: number; run_id?: string; message_id?: st
   | { type: 'status'; status: ConversationStatus }
   | { type: 'tool_started'; tool_name: string; call_id?: string; summary?: string }
   | { type: 'tool_progress'; tool_name: string; call_id: string; status: 'queued' | 'running' | 'reused'; summary?: string }
-  | { type: 'supplier_progress'; tool_name: string; call_id: string; request_id: string; supplier: string; status: 'queued' | 'running' | 'ok' | 'error' }
+  | { type: 'supplier_progress'; tool_name: string; call_id: string; request_id: string; supplier: string; status: 'queued' | 'running' | 'ok' | 'error' | 'circuit_open' }
   | { type: 'tool_finished'; tool_name: string; call_id?: string; status: 'ok' | 'error'; summary?: string }
   | { type: 'message'; role: 'user' | 'assistant'; content: string; kind: 'message' | 'question' | 'answer' | 'error' }
   | { type: 'done'; status: ConversationStatus }

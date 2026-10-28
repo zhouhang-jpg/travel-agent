@@ -142,7 +142,8 @@ async def test_flyai_dispatch_uses_explicit_mode_and_registry_deadline(
     assert all(result.data["complete"] is False for result in results)
     assert [call[0][4] for call in calls] == ["search-flight", "search-train", "search-hotel"]
     expected_key = key.get_secret_value().strip() if key else ""
-    assert all(call[2] == 17.5 for call in calls)
+    # FlyAI's own deadline stays below the tool deadline so its timeout is classified.
+    assert all(call[2] == 17.5 * 0.8 for call in calls)
     assert all(call[1].get("FLYAI_API_KEY") == (expected_key or None) for call in calls)
     exported = json.dumps(registry.catalog()) + json.dumps(registry.model_definitions())
     exported += "".join(result.model_dump_json() for result in results)

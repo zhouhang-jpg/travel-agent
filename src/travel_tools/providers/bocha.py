@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from travel_tools.common import Source, ToolFailure, utc_now
 from travel_tools.providers.http import bounded_json_request
+from travel_tools.scheduling import report_supplier_failure
 from travel_tools.schemas.web_search import SearchWebInput, SearchWebOutput, WebSearchResult
 
 BOCHA_WEB_SEARCH_URL = "https://api.bochaai.com/v1/web-search"
@@ -50,10 +51,13 @@ class BochaAdapter:
         )
         code = raw.get("code")
         if code is not None and code != 200:
-            raise ToolFailure(
-                "provider_rate_limited" if code == 429 else "provider_rejected",
-                "Bocha rejected the search request.",
-                retryable=code == 429 or (isinstance(code, int) and code >= 500),
+            raise report_supplier_failure(
+                "bocha",
+                ToolFailure(
+                    "provider_rate_limited" if code == 429 else "provider_rejected",
+                    "Bocha rejected the search request.",
+                    retryable=code == 429 or (isinstance(code, int) and code >= 500),
+                ),
             )
         retrieved_at = utc_now()
         try:

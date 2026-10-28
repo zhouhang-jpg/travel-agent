@@ -9,6 +9,8 @@ FALLBACK_ERRORS = {
     "provider_timeout",
     "provider_catalog_unavailable",
     "provider_http_error",
+    # Open breaker: skip straight to the fallback instead of waiting for a timeout.
+    "provider_circuit_open",
 }
 
 

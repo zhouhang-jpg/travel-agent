@@ -7,6 +7,7 @@ from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import datetime
 from hashlib import sha256
 from typing import Any, Literal
 from uuid import uuid4
@@ -27,6 +28,8 @@ class ErrorInfo(StrictModel):
     code: str
     message: str
     retryable: bool = False
+    # Only for provider_circuit_open; omitted otherwise to keep error envelopes unchanged.
+    retry_at: AwareDatetime | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class ToolResult(StrictModel):
@@ -78,6 +81,10 @@ class ToolSpec:
     requires_external_service: bool = False
     execution: Literal["exclusive", "parallel_read"] = "exclusive"
     cache_seconds: float = 0
+    # (label, suppliers): a route works only if none of its suppliers' breakers is open.
+    routes: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    # auto: the tool switches routes itself; model: the model picks one via `provider`.
+    route_choice: Literal["auto", "model"] = "auto"
 
 
 class ToolRegistry:
@@ -137,6 +144,54 @@ class ToolRegistry:
                 "output_schema": spec.output_type.model_json_schema(),
             }
             for spec in self._tools.values()
+        ]
+
+    def with_health(self, catalog: list[dict[str, Any]], now: datetime) -> list[dict[str, Any]]:
+        """Overlay open breakers onto catalog entries for the runtime snapshot.
+
+        Hidden while an automatic route still works. Tool definitions and the
+        stored catalog stay unchanged, so prompt prefixes and run manifests do too.
+        """
+        overrides = {}
+        for spec in self._tools.values():
+            if spec.availability != "ready" or not spec.routes:
+                continue
+            down = {}
+            for label, suppliers in spec.routes:
+                blocked = [
+                    status
+                    for supplier in suppliers
+                    if (status := self.scheduler.breakers.blocked(supplier))
+                ]
+                if blocked:
+                    down[label] = max(blocked, key=lambda status: status["retry_at"])
+            if not down:
+                continue
+
+            def describe(label, status):
+                retry = status["retry_at"].astimezone(now.tzinfo).isoformat(timespec="seconds")
+                return f"{label}（{status['reason']}，预计{retry}后可再试）"
+
+            details = "；".join(describe(label, status) for label, status in down.items())
+            if len(down) == len(spec.routes):
+                retry_at = min(status["retry_at"] for status in down.values())
+                overrides[spec.name] = {
+                    "availability": "temporarily_unavailable",
+                    "reason": "所有已配置来源暂时不可用：" + details,
+                    "retry_at": retry_at.astimezone(now.tzinfo).isoformat(timespec="seconds"),
+                }
+            elif spec.route_choice == "model":
+                working = [label for label, _ in spec.routes if label not in down]
+                overrides[spec.name] = {
+                    "availability": "ready",
+                    "reason": "部分来源暂时不可用："
+                    + details
+                    + "；仍可用provider="
+                    + "/".join(working),
+                }
+        return [
+            {**deepcopy(item), **overrides[item["name"]]} if item.get("name") in overrides else item
+            for item in catalog
         ]
 
     def model_definitions(self) -> list[dict[str, Any]]:
@@ -290,7 +345,12 @@ class ToolRegistry:
         except ToolFailure as exc:
             if progress_failure is not None:
                 raise
-            error = ErrorInfo(code=exc.code, message=exc.message, retryable=exc.retryable)
+            error = ErrorInfo(
+                code=exc.code,
+                message=exc.message,
+                retryable=exc.retryable,
+                retry_at=getattr(exc, "retry_at", None),
+            )
         except TimeoutError:
             error = ErrorInfo(
                 code="timeout", message="Tool execution deadline exceeded.", retryable=True
